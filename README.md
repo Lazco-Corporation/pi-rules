@@ -17,6 +17,7 @@ It reads the same rule files, so you can switch without a change to your rules.
 
 - **Claude Code compatible.** Reads `.claude/rules/` and `.agents/rules/` next to `.pi/rules/`, so one set of files serves both tools.
 - **Rules for matching files.** A rule with `paths` loads only when the agent reads, edits, or writes a matching file.
+- **User rules for any file.** A rule in your home directory also loads for files outside the project, such as `/tmp/build.sh` or `~/.zshrc`.
 - **Rule before change.** An edit or a write to a matching file waits until the agent has the rule, then the agent tries again.
 - **Linked skills.** A rule can load full pi [skills](#skills) when it loads.
 - **Six sources in one list.** Project and user directories merge by file name, and the first source wins. See [Rule files](#rule-files).
@@ -119,7 +120,19 @@ A file without frontmatter is a rule for every session.
 | `events` | `tool_call: <tool>` or a list of tools | The rule loads only for these tools: `read`, `edit`, `write`. |
 | `skills` | a skill name or a list of names | These skills load with the rule. |
 
-Globs are relative to `<project>`, use `/`, and match dotfiles.
+Globs use `/` and match dotfiles.
+How a glob matches depends on the directory of the rule:
+
+| Rule in | Applies to | Glob |
+| --- | --- | --- |
+| a project directory (1 to 3) | files inside `<project>` | relative to `<project>` |
+| a user directory (4 to 6) | any file | `/…` is an absolute path. `~/…` starts at your home directory. Other globs match the path inside `<project>` or the absolute path. |
+
+For example, a user rule with `paths: "**/*.sh"` loads for `/tmp/build.sh` and for `scripts/build.sh` in any project.
+A user rule with `paths: "~/Projects/shop/**"` loads only for files of that project.
+
+When you start pi in your home directory, `.agents/rules/` and `~/.agents/rules/` are the same directory.
+Its rules then count as user rules.
 
 ### Tools
 
@@ -188,7 +201,7 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 
 ## Limitations
 
-- **Files outside the project.** A `read`, `edit`, or `write` of a file outside `<project>` does not load a rule, also a user rule.
+- **Project rules of other projects.** A file in another project loads only user rules, not the rules in the directories of that project.
 - **Shell commands.** A file that a `bash` command changes does not load a rule.
 - **Changed rules.** A rule that already loaded does not load again after you change its file, until the next compaction.
 

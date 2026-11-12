@@ -25,7 +25,7 @@ All source sits under `src/`.
 | `index.ts` | the pi event handlers, the injection message, and its renderer |
 | `state.ts` | which rules and skills the model sees now, read from the injection messages on the current branch |
 | `discovery.ts` | `rules.json`, the rule sources, and the rule file parser |
-| `matching.ts` | the tool call target and the glob match |
+| `matching.ts` | the tool call target, and which rule applies to it: project rules inside the working directory, user rules to any file |
 | `types.ts` | the shared types |
 
 `scripts/audit-sessions.py` reads `~/.pi/agent/sessions` and prints JSON totals for each known problem.

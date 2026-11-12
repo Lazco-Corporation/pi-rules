@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { DEFAULT_RULE_SOURCES, discoverRules, loadRuleConfig, type RuleSource } from "./discovery.ts";
-import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "./matching.ts";
+import { extractTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent, targetLabel } from "./matching.ts";
 import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
 import type { PendingRule, Rule, RuleInjectionDetails } from "./types.ts";
 
@@ -145,17 +145,18 @@ export function makeExtension() {
       rules = await reloadRules(ctx.cwd);
       const state = branchState(ctx);
 
+      const label = targetLabel(target);
       let shouldBlock = false;
       for (const rule of rules) {
         if (state.rules.has(rule.id)) continue;
-        if (rule.paths && !ruleMatchesTarget(rule, target)) continue;
+        if (!ruleAppliesToTarget(rule, target)) continue;
         if (!ruleMatchesToolCallEvent(rule, event.toolName)) continue;
         if (event.toolName !== "read") shouldBlock = true;
         const pending = pendingRules.get(rule.id);
         if (pending) {
-          if (isScoped(rule)) pending.targets.add(target);
+          if (isScoped(rule)) pending.targets.add(label);
         } else {
-          pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [target] : []) });
+          pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [label] : []) });
         }
       }
       if (!shouldBlock) return;
