@@ -1,0 +1,14 @@
+package.json
+  h_62d5984d259ab3 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6c1f79f296ac0d15a59392d010c27185cdf67a42",
+  "prompts": {},
+  "humans": {
+    "h_62d5984d259ab3": {
+      "author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
