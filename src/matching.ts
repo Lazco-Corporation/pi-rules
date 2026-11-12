@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import picomatch from "picomatch";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import type { Rule } from "./types.ts";
+import type { Rule, RuleToolName } from "./types.ts";
 
 const FILE_TOOLS = new Set(["read", "edit", "write"]);
 
@@ -55,6 +55,14 @@ export function ruleAppliesToTarget(rule: Rule, target: ToolTarget, home = os.ho
 
 export function ruleMatchesToolCallEvent(rule: Rule, toolName: string): boolean {
   return !rule.events || rule.events.tool_call.some((name) => name === toolName);
+}
+
+/** How a tool call touches a file. A `bash` change can be an edit or a write, so it matches both. */
+export type FileAccess = RuleToolName | "change";
+
+export function accessMatchesEvents(rule: Rule, access: FileAccess): boolean {
+  if (access === "change") return ruleMatchesToolCallEvent(rule, "edit") || ruleMatchesToolCallEvent(rule, "write");
+  return ruleMatchesToolCallEvent(rule, access);
 }
 
 function patternMatches(pattern: string, rule: Rule, target: ToolTarget, home: string): boolean {

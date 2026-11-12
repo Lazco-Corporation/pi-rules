@@ -10,7 +10,14 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { DEFAULT_RULE_SOURCES, discoverRules, loadRuleConfig, type RuleSource } from "./discovery.ts";
 import { extractBashTargets } from "./bash.ts";
-import { extractTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent, targetLabel, type ToolTarget } from "./matching.ts";
+import {
+  accessMatchesEvents,
+  extractTarget,
+  ruleAppliesToTarget,
+  targetLabel,
+  type FileAccess,
+  type ToolTarget,
+} from "./matching.ts";
 import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
 import type { DueRule, PendingRule, RemovedRule, Rule, RuleInjectionDetails, RuleToolName } from "./types.ts";
 
@@ -232,14 +239,6 @@ export function makeExtension() {
       inFlight.clear();
     });
   };
-}
-
-/** How a tool call touches a file. A `bash` change can be an edit or a write, so it matches both. */
-type FileAccess = RuleToolName | "change";
-
-function accessMatchesEvents(rule: Rule, access: FileAccess): boolean {
-  if (access === "change") return ruleMatchesToolCallEvent(rule, "edit") || ruleMatchesToolCallEvent(rule, "write");
-  return ruleMatchesToolCallEvent(rule, access);
 }
 
 /** The files that a tool call reads or changes. */

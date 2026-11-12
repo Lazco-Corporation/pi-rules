@@ -55,6 +55,9 @@ test("finds the files that a command writes", async () => {
       ["echo ok # comment\nprintf x > after-comment.txt", ["after-comment.txt"]],
       ["(cd sub; touch inner.go); touch outer.go", ["sub/inner.go", "outer.go"]],
       ["cat <<<word\necho > after-here-string.txt", ["after-here-string.txt"]],
+      ["sed -l 80 -i 's/a/b/' a.ts", ["a.ts"]],
+      ["touch '[a].md' -- -out", ["[a].md", "-out"]],
+      ["constructor -x > ok.txt", ["ok.txt"]],
     ];
     for (const [command, writes] of cases) {
       assert.deepEqual((await targets(command, cwd, home)).writes, writes, command);
@@ -73,6 +76,7 @@ test("does not count text, file descriptors, or heredoc code as writes", async (
       "ls *.ts # > comment",
       "perl -Mstrict script.pl a.ts",
       "install -d build",
+      "cp *.ts dir/",
     ];
     for (const command of commands) {
       assert.deepEqual((await targets(command, cwd, home)).writes, [], command);

@@ -922,10 +922,14 @@ test("a bash write pauses for a before rule, and a bash read or an after rule lo
 test("a bash change matches rules that list edit or write in events", async () => {
   await withTempDirectory(async (cwd) => {
     await writeRule(cwd, ".pi/rules/on-edit.md", "---\npaths: \"**/*.md\"\nevents:\n  tool_call: edit\n---\nEdit rule");
+    await writeRule(cwd, ".pi/rules/on-write.md", "---\npaths: \"**/*.txt\"\nevents:\n  tool_call: write\n---\nWrite rule");
+    await writeRule(cwd, ".pi/rules/on-read.md", "---\npaths: \"**/*.log\"\nevents:\n  tool_call: read\n---\nRead rule");
     const fake = createFakePi();
     extension(fake.api);
     await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
-    const call = { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command: "echo x >> notes.md" } };
-    assert.equal((await fake.emit("tool_call", call, { cwd })).block, true);
+    const bash = (command: string) => ({ type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command } });
+    assert.equal((await fake.emit("tool_call", bash("echo x >> notes.md"), { cwd })).block, true);
+    assert.equal((await fake.emit("tool_call", bash("echo x > notes.txt"), { cwd })).block, true);
+    assert.equal(await fake.emit("tool_call", bash("echo x > out.log"), { cwd }), undefined);
   });
 });

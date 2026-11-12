@@ -17,14 +17,16 @@ const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
 export const MAX_READ_CANDIDATES = 64;
 
 /** Commands that run another command, with their options that take a value. */
-const WRAPPERS: Record<string, string[]> = {
-  sudo: ["-u", "-g", "-U", "-C", "-h", "-p", "-r", "-t", "-D", "-R", "-T"],
-  env: ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
-  command: [],
-  nohup: [],
-  time: ["-f", "-o", "--format", "--output"],
-  rtk: [],
-};
+const WRAPPERS = new Map<string, string[]>([
+  ["sudo", ["-u", "-g", "-U", "-C", "-h", "-p", "-r", "-t", "-D", "-R", "-T"]],
+  ["env", ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"]],
+  ["command", []],
+  ["nohup", []],
+  ["time", ["-f", "-o", "--format", "--output"]],
+  ["rtk", []],
+]);
+// Marks a word that shell-quote parsed as an unquoted glob, so it never counts as a literal path.
+const GLOB_MARK = "\u0000";
 
 const COPY_VALUE_OPTIONS = ["-t", "-S", "--target-directory", "--suffix"];
 const INSTALL_VALUE_OPTIONS = [...COPY_VALUE_OPTIONS, "-m", "-o", "-g", "--mode", "--owner", "--group"];
@@ -73,7 +75,7 @@ export async function extractBashTargets(command: string, cwd: string, home = os
     const { written, readOnly } = await commandFiles(path.basename(name), args, directory, home);
     for (const word of written) addWrite(word, directory);
     for (const word of readOnly) {
-      if (isPathWord(word)) readCandidates.push({ word, base: directory });
+      if (isPathWord(word) && !word.startsWith("-")) readCandidates.push({ word, base: directory });
     }
   };
 
@@ -86,7 +88,7 @@ export async function extractBashTargets(command: string, cwd: string, home = os
     if (!token || "comment" in token) continue;
     if (!("op" in token)) continue;
     if (token.op === "glob") {
-      words.push(token.pattern);
+      words.push(`${GLOB_MARK}${token.pattern}`);
       continue;
     }
     const next = tokens[index + 1];
@@ -138,10 +140,10 @@ async function commandFiles(
     case "touch":
       return notWritten(operands(args, TOUCH_VALUE_OPTIONS).files);
     case "sed":
-      return notWritten(inPlaceFiles(args, (arg) => arg.startsWith("-i") || arg.startsWith("--in-place"), ["-e", "-f", "-l"]));
+      return notWritten(inPlaceFiles(args, (arg) => arg.startsWith("-i") || arg.startsWith("--in-place"), ["-e", "-f"], ["-l"]));
     case "perl":
       // `-M` and `-I` take an attached value, so `-Mstrict` is not `-i`.
-      return notWritten(inPlaceFiles(args, (arg) => /^-[a-zA-HJ-LN-Z]*i/.test(arg), ["-e", "-E"]));
+      return notWritten(inPlaceFiles(args, (arg) => /^-[a-zA-HJ-LN-Z]*i/.test(arg), ["-e", "-E"], []));
     case "cp":
     case "mv":
       return notWritten(await copyDestinations(args, COPY_VALUE_OPTIONS, directory, home));
@@ -179,10 +181,15 @@ function operands(args: string[], valueOptions: string[]): { files: string[]; va
 }
 
 /** Files of an in-place editor. Without a script option, the first operand is the script. */
-function inPlaceFiles(args: string[], isInPlaceFlag: (arg: string) => boolean, scriptOptions: string[]): string[] {
+function inPlaceFiles(
+  args: string[],
+  isInPlaceFlag: (arg: string) => boolean,
+  scriptOptions: string[],
+  otherValueOptions: string[],
+): string[] {
   if (!args.some(isInPlaceFlag)) return [];
-  const { files, values } = operands(args, scriptOptions);
-  return values.size > 0 ? files : files.slice(1);
+  const { files, values } = operands(args, [...scriptOptions, ...otherValueOptions]);
+  return scriptOptions.some((option) => values.has(option)) ? files : files.slice(1);
 }
 
 /** The files that `cp`, `mv`, or `install` creates: inside a target directory, or the last operand. */
@@ -209,7 +216,7 @@ function withoutWrappers(words: string[]): string[] {
       index++;
       continue;
     }
-    const valueOptions = WRAPPERS[word];
+    const valueOptions = WRAPPERS.get(word);
     if (valueOptions === undefined) break;
     index++;
     while (index < words.length && (words[index] ?? "").startsWith("-")) {
@@ -219,8 +226,9 @@ function withoutWrappers(words: string[]): string[] {
   return words.slice(index);
 }
 
+/** A word that can be a literal path. `$` stays in a word only when the variable is unknown. */
 function isPathWord(word: string): boolean {
-  return word.length > 0 && !word.startsWith("-") && !/[$*?[\]{}]/.test(word) && !/^\d+$/.test(word);
+  return word.length > 0 && !word.includes(GLOB_MARK) && !word.includes("$") && !/^\d+$/.test(word);
 }
 
 async function isDirectory(absolutePath: string): Promise<boolean> {

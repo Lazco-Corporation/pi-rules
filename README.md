@@ -94,7 +94,7 @@ Only these forms count as a change to a file:
 It follows `cd` in the same command, so `cd src && sed -i 's/a/b/' main.go` counts as a change to `src/main.go`.
 A `cd` inside `( … )` applies only inside the parentheses.
 The first 64 other arguments that name an existing file count as reads.
-A `bash` change matches a rule whose `events` list `edit` or `write`.
+A `bash` change matches a rule without `events`, and a rule whose `events` list `edit` or `write`.
 
 Each rule loads once on the current branch of the conversation.
 pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
