@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import picomatch from "picomatch";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import type { Rule } from "./types.ts";
+import type { Rule, RuleToolName } from "./types.ts";
 
 const FILE_TOOLS = new Set(["read", "edit", "write"]);
 
@@ -22,9 +22,10 @@ export function extractTarget(event: ToolCallEvent, cwd: string, home = os.homed
   return resolveTarget(withoutAt, cwd, home);
 }
 
-export function resolveTarget(rawPath: string, cwd: string, home = os.homedir()): ToolTarget {
+/** Resolve a path that a command names in `base`. `relativePath` is still relative to the working directory. */
+export function resolveTarget(rawPath: string, cwd: string, home = os.homedir(), base = cwd): ToolTarget {
   const expanded = rawPath === "~" || rawPath.startsWith("~/") ? path.join(home, rawPath.slice(1)) : rawPath;
-  const absolutePath = path.resolve(cwd, expanded);
+  const absolutePath = path.resolve(base, expanded);
   const relativePath = path.relative(cwd, absolutePath);
   const inside =
     relativePath.length > 0 &&
@@ -54,6 +55,14 @@ export function ruleAppliesToTarget(rule: Rule, target: ToolTarget, home = os.ho
 
 export function ruleMatchesToolCallEvent(rule: Rule, toolName: string): boolean {
   return !rule.events || rule.events.tool_call.some((name) => name === toolName);
+}
+
+/** How a tool call touches a file. A `bash` change can be an edit or a write, so it matches both. */
+export type FileAccess = RuleToolName | "change";
+
+export function accessMatchesEvents(rule: Rule, access: FileAccess): boolean {
+  if (access === "change") return ruleMatchesToolCallEvent(rule, "edit") || ruleMatchesToolCallEvent(rule, "write");
+  return ruleMatchesToolCallEvent(rule, access);
 }
 
 function patternMatches(pattern: string, rule: Rule, target: ToolTarget, home: string): boolean {

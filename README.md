@@ -79,6 +79,22 @@ Keep tests next to the behavior they check.
 | --- | --- |
 | `read` on a matching file | The read runs. The rule loads before the next model call. |
 | `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. With [`timing: after`](#timing), the call runs, and the rule loads like a read. |
+| `bash` that changes a matching file | The same as `edit`. |
+| `bash` that names an existing matching file | The same as `read`. |
+
+### Shell commands
+
+pi-rules reads a `bash` command before it runs.
+Only these forms count as a change to a file:
+
+- redirections, such as `> file` and `>> file`,
+- `tee`, `touch`, `sed -i`, and `perl -i`,
+- the destination of `cp`, `mv`, and `install`.
+
+It follows `cd` in the same command, so `cd src && sed -i 's/a/b/' main.go` counts as a change to `src/main.go`.
+A `cd` inside `( … )` applies only inside the parentheses.
+The first 64 other arguments that name an existing file count as reads.
+A `bash` change matches a rule without `events`, and a rule whose `events` list `edit` or `write`.
 
 Each rule loads once on the current branch of the conversation.
 pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
@@ -224,7 +240,7 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 ## Limitations
 
 - **Project rules of other projects.** A file in another project loads only user rules, not the rules in the directories of that project.
-- **Shell commands.** A file that a `bash` command changes does not load a rule.
+- **Other shell changes.** Commands such as `rm`, `ln`, `chmod`, and `dd of=`, and code inside a heredoc, such as `python3 - <<EOF`, do not count as changes. A file that a script changes counts as a change only through the forms above. When the command names that file, as in `python3 update.py src/a.ts`, the rule loads after the command, like a read.
 
 ## Contributing
 

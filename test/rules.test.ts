@@ -892,3 +892,44 @@ test("an unknown timing value skips the rule with a warning", async () => {
     assert.equal(warnings.some((warning) => /bad\.md: timing must be before or after/.test(warning)), true);
   });
 });
+
+test("a bash write pauses for a before rule, and a bash read or an after rule loads later", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/go.md", "---\npaths: \"**/*.go\"\n---\nGo rule");
+    await writeRule(cwd, ".pi/rules/style.md", "---\npaths: \"**/*.ts\"\ntiming: after\n---\nStyle rule");
+    await writeRule(cwd, "src/main.go", "package main");
+    await writeRule(cwd, "src/a.ts", "export {}");
+    const bash = (command: string) => ({ type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command } });
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+    assert.equal(await fake.emit("tool_call", bash("cat src/main.go"), { cwd }), undefined);
+    assert.equal(await fake.emit("tool_call", bash("cd src && sed -i 's/a/b/' a.ts"), { cwd }), undefined);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.deepEqual(fake.sent[0].message.details.targets, {
+      ".pi/rules/go.md": ["src/main.go"],
+      ".pi/rules/style.md": ["src/a.ts"],
+    });
+
+    await writeRule(cwd, ".pi/rules/go2.md", "---\npaths: \"**/*.go\"\n---\nSecond Go rule");
+    const write = await fake.emit("tool_call", bash("gofmt -w src/main.go > src/out.go"), { cwd });
+    assert.equal(write.block, true);
+    assert.match(write.reason, /Tool `bash` paused/);
+  });
+});
+
+test("a bash change matches rules that list edit or write in events", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/on-edit.md", "---\npaths: \"**/*.md\"\nevents:\n  tool_call: edit\n---\nEdit rule");
+    await writeRule(cwd, ".pi/rules/on-write.md", "---\npaths: \"**/*.txt\"\nevents:\n  tool_call: write\n---\nWrite rule");
+    await writeRule(cwd, ".pi/rules/on-read.md", "---\npaths: \"**/*.log\"\nevents:\n  tool_call: read\n---\nRead rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    const bash = (command: string) => ({ type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command } });
+    assert.equal((await fake.emit("tool_call", bash("echo x >> notes.md"), { cwd })).block, true);
+    assert.equal((await fake.emit("tool_call", bash("echo x > notes.txt"), { cwd })).block, true);
+    assert.equal(await fake.emit("tool_call", bash("echo x > out.log"), { cwd }), undefined);
+  });
+});
