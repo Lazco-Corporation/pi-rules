@@ -1,12 +1,11 @@
 import type { ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
-import type { RuleInjectionDetails } from "./types.ts";
 
 export const CUSTOM_MESSAGE_TYPE = "pi-rules-injection";
 
 /** The rules and skills that the model can see now, read from the injection messages in its context. */
 export interface InjectedState {
-  /** Rule id to the hash of the body that the model has. */
-  rules: Map<string, string>;
+  /** Rule id to the version of the rule that the model has. */
+  rules: Map<string, { hash: string; label: string }>;
   skills: Set<string>;
   injectionIds: Set<string>;
 }
@@ -42,7 +41,11 @@ export function collectInjectedState(
 export function addInjection(state: InjectedState, details: unknown): void {
   if (!isInjectionDetails(details)) return;
   state.injectionIds.add(details.injectionId);
-  for (const rule of details.rules) state.rules.set(rule.id, rule.hash);
+  details.rules.forEach((rule, index) => {
+    // 0.7 and 0.8 stored the label only in `sources`, in the same order as `rules`.
+    state.rules.set(rule.id, { hash: rule.hash, label: rule.label ?? details.sources[index] ?? rule.id });
+  });
+  for (const rule of details.removed ?? []) state.rules.delete(rule.id);
   for (const skill of details.skills) state.skills.add(skill);
 }
 
@@ -57,13 +60,23 @@ function isInjectionMessage(message: unknown): message is { details: unknown } {
 }
 
 // Injections written by older versions have no rule list. They are ignored, so those rules load once more.
-function isInjectionDetails(details: unknown): details is RuleInjectionDetails {
+interface StoredInjectionDetails {
+  injectionId: string;
+  rules: Array<{ id: string; hash: string; label?: string }>;
+  removed?: Array<{ id: string }>;
+  sources: string[];
+  skills: string[];
+}
+
+function isInjectionDetails(details: unknown): details is StoredInjectionDetails {
   if (typeof details !== "object" || details === null) return false;
-  const candidate = details as Partial<RuleInjectionDetails>;
+  const candidate = details as Partial<StoredInjectionDetails>;
   return (
     typeof candidate.injectionId === "string" &&
     Array.isArray(candidate.rules) &&
     candidate.rules.every((rule) => typeof rule?.id === "string" && typeof rule.hash === "string") &&
+    (candidate.removed === undefined || Array.isArray(candidate.removed)) &&
+    Array.isArray(candidate.sources) &&
     Array.isArray(candidate.skills)
   );
 }

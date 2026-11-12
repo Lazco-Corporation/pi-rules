@@ -87,6 +87,9 @@ pi-rules reads the injected rules from the messages that the model sees, so it s
 - resume a session, run `/reload`, or fork a session,
 - compact the session. The rules that the summary replaced load again when they are needed.
 
+When you change a rule file that already loaded, the new version loads before the next model call, marked `(updated)`.
+When you delete it, the model gets a short notice that the rule no longer applies.
+
 ## Rule files
 
 A rule is a Markdown file.
@@ -203,7 +206,6 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 
 - **Project rules of other projects.** A file in another project loads only user rules, not the rules in the directories of that project.
 - **Shell commands.** A file that a `bash` command changes does not load a rule.
-- **Changed rules.** A rule that already loaded does not load again after you change its file, until the next compaction.
 
 ## Contributing
 

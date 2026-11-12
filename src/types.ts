@@ -33,14 +33,29 @@ export interface DiscoveryResult {
 export interface InjectedRule {
   id: string;
   hash: string;
+  label: string;
+}
+
+export interface RemovedRule {
+  id: string;
+  label: string;
 }
 
 export interface RuleInjectionDetails {
   injectionId: string;
+  /** Rules that this message loads, also new versions of rules that the model has. */
   rules: InjectedRule[];
+  /** Rules whose file is gone. The message tells the model to stop following them. */
+  removed: RemovedRule[];
   sources: string[];
+  /** The labels in `sources` that replace an earlier version. */
+  updated: string[];
   targets: Record<string, string[]>;
   skills: string[];
+}
+
+export interface DueRule extends PendingRule {
+  updated: boolean;
 }
 
 export interface PendingRule {

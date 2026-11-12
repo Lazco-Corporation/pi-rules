@@ -10,7 +10,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { DEFAULT_RULE_SOURCES, discoverRules, loadRuleConfig, type RuleSource } from "./discovery.ts";
 import { extractTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent, targetLabel } from "./matching.ts";
 import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
-import type { PendingRule, Rule, RuleInjectionDetails } from "./types.ts";
+import type { DueRule, PendingRule, RemovedRule, Rule, RuleInjectionDetails } from "./types.ts";
 
 export { CUSTOM_MESSAGE_TYPE };
 
@@ -38,9 +38,19 @@ export function makeExtension() {
 
     pi.registerMessageRenderer<RuleInjectionDetails>(CUSTOM_MESSAGE_TYPE, (message, { expanded }, theme) => {
       const details = message.details;
-      const sourceLines = (details?.sources ?? ["(unknown)"]).map((source) => `↳ ${source}`).join("\n");
+      const updated = new Set(details?.updated ?? []);
+      const sourceLines = (details?.sources ?? ["(unknown)"])
+        .map((source) => `↳ ${source}${updated.has(source) ? " (updated)" : ""}`)
+        .join("\n");
       const skillLines = (details?.skills ?? []).map((skill) => `↳ ${skill}`).join("\n");
-      const summary = `Loaded rules:\n${sourceLines}${skillLines ? `\nLoaded skills:\n${skillLines}` : ""}`;
+      const removedLines = (details?.removed ?? []).map((rule) => `↳ ${rule.label}`).join("\n");
+      const summary = [
+        sourceLines ? `Loaded rules:\n${sourceLines}` : "",
+        skillLines ? `Loaded skills:\n${skillLines}` : "",
+        removedLines ? `Removed rules:\n${removedLines}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       if (!expanded) {
         return new Text(theme.fg("muted", summary), 0, 0);
       }
@@ -52,11 +62,7 @@ export function makeExtension() {
         })
         .join("\n");
       const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content, null, 2);
-      return new Text(
-        `${theme.fg("accent", "Loaded rules:")}\n${theme.fg("muted", sourceLines)}\n\n${theme.fg("dim", targetLines ?? "")}\n\n${content}`,
-        0,
-        0,
-      );
+      return new Text(`${theme.fg("accent", summary)}\n\n${theme.fg("dim", targetLines ?? "")}\n\n${content}`, 0, 0);
     });
 
     const reloadConfig = async (cwd: string): Promise<void> => {
@@ -95,20 +101,38 @@ export function makeExtension() {
       return withInFlight(cachedBranch.state);
     };
 
-    // Takes the matches of this turn and adds every unconditional rule that the model does not have.
-    const takeDueRules = (state: InjectedState): PendingRule[] => {
-      const due = [...pendingRules.values()].filter((entry) => !state.rules.has(entry.rule.id));
+    /**
+     * Takes the matches of this turn, and adds every unconditional rule that the model does not have,
+     * every rule whose file changed after the model got it, and every rule whose file is gone.
+     */
+    const takeDueRules = (state: InjectedState): { due: DueRule[]; removed: RemovedRule[] } => {
+      const due: DueRule[] = [...pendingRules.values()]
+        .filter((entry) => !state.rules.has(entry.rule.id))
+        .map((entry) => ({ ...entry, updated: false }));
       pendingRules.clear();
       for (const rule of rules) {
-        if (isScoped(rule) || state.rules.has(rule.id)) continue;
-        if (!due.some((entry) => entry.rule.id === rule.id)) due.push({ rule, targets: new Set<string>() });
+        if (due.some((entry) => entry.rule.id === rule.id)) continue;
+        const known = state.rules.get(rule.id);
+        if (known) {
+          if (known.hash !== rule.hash) due.push({ rule, targets: new Set<string>(), updated: true });
+        } else if (!isScoped(rule)) {
+          due.push({ rule, targets: new Set<string>(), updated: false });
+        }
       }
-      return due;
+      const discovered = new Set(rules.map((rule) => rule.id));
+      const removed = [...state.rules]
+        .filter(([id]) => !discovered.has(id))
+        .map(([id, known]) => ({ id, label: known.label }));
+      return { due, removed };
     };
 
-    const buildInjection = async (entries: PendingRule[], state: InjectedState): Promise<RuleInjection> => {
-      const skillBlocks = await loadSkillBlocks(entries, availableSkills, state.skills, reportWarning);
-      return createInjection(entries, skillBlocks);
+    const buildInjection = async (
+      { due, removed }: { due: DueRule[]; removed: RemovedRule[] },
+      state: InjectedState,
+    ): Promise<RuleInjection | undefined> => {
+      if (due.length === 0 && removed.length === 0) return undefined;
+      const skillBlocks = await loadSkillBlocks(due, availableSkills, state.skills, reportWarning);
+      return createInjection(due, skillBlocks, removed);
     };
 
     pi.on("session_start", async (_event, ctx) => {
@@ -133,9 +157,9 @@ export function makeExtension() {
       if (!config.enabled) return;
       rules = await reloadRules(ctx.cwd);
       const state = branchState(ctx);
-      const due = takeDueRules(state);
-      if (due.length === 0) return;
-      return { message: await buildInjection(due, state) };
+      const injection = await buildInjection(takeDueRules(state), state);
+      if (!injection) return;
+      return { message: injection };
     });
 
     pi.on("tool_call", async (event, ctx) => {
@@ -173,9 +197,8 @@ export function makeExtension() {
       rules = await reloadRules(ctx.cwd);
       // The preview already holds the entries that earlier handlers proposed for this boundary.
       const state = withInFlight(collectInjectedState(event.context.contextEntries, event.context.pendingMessages));
-      const due = takeDueRules(state);
-      if (due.length === 0) return;
-      const injection = await buildInjection(due, state);
+      const injection = await buildInjection(takeDueRules(state), state);
+      if (!injection) return;
       return { entries: [...event.entries, { type: "custom_message", ...injection }] };
     });
 
@@ -189,9 +212,8 @@ export function makeExtension() {
       rules = await reloadRules(ctx.cwd);
       // A compaction that retries the turn makes a model call before any turn boundary, so restore the rules now.
       const state = branchState(ctx);
-      const due = takeDueRules(state);
-      if (due.length === 0) return;
-      const injection = await buildInjection(due, state);
+      const injection = await buildInjection(takeDueRules(state), state);
+      if (!injection) return;
       inFlight.set(injection.details.injectionId, injection.details);
       pi.sendMessage(injection);
     });
@@ -208,23 +230,34 @@ interface SkillBlock {
   content: string;
 }
 
-export function createInjection(entries: PendingRule[], skillBlocks: SkillBlock[] = []): RuleInjection {
+export function createInjection(
+  entries: Array<PendingRule & { updated?: boolean }>,
+  skillBlocks: SkillBlock[] = [],
+  removed: RemovedRule[] = [],
+): RuleInjection {
   const sorted = [...entries].sort(comparePendingRules);
   const sources = sorted.map((entry) => entry.rule.sourceLabel);
   const targets = Object.fromEntries(sorted.map((entry) => [entry.rule.sourceLabel, [...entry.targets].sort()]));
-  const ruleBody = sorted
-    .map((entry) => `## Rule: ${entry.rule.sourceLabel}\n\n${entry.rule.body}`)
-    .join("\n\n---\n\n");
-  const skillBody = skillBlocks.map((skill) => skill.content).join("\n\n");
+  const blocks = [
+    ...sorted.map((entry) =>
+      entry.updated
+        ? `## Rule: ${entry.rule.sourceLabel} (updated)\n\nThis version replaces the earlier version of this rule.\n\n${entry.rule.body}`
+        : `## Rule: ${entry.rule.sourceLabel}\n\n${entry.rule.body}`,
+    ),
+    ...removed.map((rule) => `## Rule removed: ${rule.label}\n\nThis rule no longer applies. Stop following its earlier version.`),
+    ...skillBlocks.map((skill) => skill.content),
+  ];
 
   return {
     customType: CUSTOM_MESSAGE_TYPE,
-    content: skillBody ? `${ruleBody}\n\n---\n\n${skillBody}` : ruleBody,
+    content: blocks.join("\n\n---\n\n"),
     display: true,
     details: {
       injectionId: randomUUID(),
-      rules: sorted.map((entry) => ({ id: entry.rule.id, hash: entry.rule.hash })),
+      rules: sorted.map((entry) => ({ id: entry.rule.id, hash: entry.rule.hash, label: entry.rule.sourceLabel })),
+      removed,
       sources,
+      updated: sorted.filter((entry) => entry.updated).map((entry) => entry.rule.sourceLabel),
       targets,
       skills: skillBlocks.map((skill) => skill.name),
     },
