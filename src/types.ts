@@ -12,6 +12,8 @@ export interface Rule {
   sourcePath: string;
   sourceLabel: string;
   scope: RuleScope;
+  /** The project that a `repo` rule belongs to. Its globs are relative to this directory. */
+  projectRoot?: string;
   body: string;
   /** Hash of the whole file, so a changed rule can be told apart from the version that the model has. */
   hash: string;

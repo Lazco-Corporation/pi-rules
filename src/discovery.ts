@@ -43,6 +43,8 @@ interface DiscoveryOptions {
   env?: NodeJS.ProcessEnv;
   home?: string;
   sources?: RuleSource[];
+  /** Put before the label of each project rule, to name a project other than the working directory. */
+  labelPrefix?: string;
 }
 
 export interface RuleConfigResult {
@@ -113,9 +115,11 @@ export async function discoverRules(cwd: string, options: DiscoveryOptions = {})
       names.add(name);
 
       const sourcePath = path.join(root.directory, ...relativePath.split("/"));
-      const sourceLabel = `${root.label}/${relativePath}`;
+      const prefix = root.scope === "repo" ? (options.labelPrefix ?? "") : "";
+      const sourceLabel = `${prefix}${root.label}/${relativePath}`;
       const parsed = await parseRuleFile(sourcePath, sourceLabel, root.scope);
       if ("rule" in parsed) {
+        if (root.scope === "repo") parsed.rule.projectRoot = path.resolve(cwd);
         rules.push(parsed.rule);
       } else {
         diagnostics.push(parsed.diagnostic);
@@ -238,6 +242,13 @@ async function findMarkdownFiles(directory: string, ancestors = new Set<string>(
 
 function resolvePiCodingAgentDirectory(env: NodeJS.ProcessEnv, home: string): string {
   return env.PI_CODING_AGENT_DIR || path.join(env.PI_CONFIG_DIR || path.join(home, ".pi"), "agent");
+}
+
+/** Every standard rule directory for a working directory, also the ones that `rules.json` turns off. */
+export function standardRuleDirectories(cwd: string, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): string[] {
+  const home = options.home ?? os.homedir();
+  const env = options.env ?? process.env;
+  return DEFAULT_RULE_SOURCES.map((source) => resolveRuleRoot(source, cwd, env, home).directory);
 }
 
 function resolveRuleRoot(source: RuleSource, cwd: string, env: NodeJS.ProcessEnv, home: string): RuleRoot {

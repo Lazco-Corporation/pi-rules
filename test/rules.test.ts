@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import type { Rule } from "../src/types.ts";
 import { discoverRules, loadRuleConfig, parseRuleFile } from "../src/discovery.ts";
-import extension, { CUSTOM_MESSAGE_TYPE } from "../src/index.ts";
+import extension, { CUSTOM_MESSAGE_TYPE, makeExtension } from "../src/index.ts";
+import { OtherProjects } from "../src/projects.ts";
 import { extractTarget, resolveTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent } from "../src/matching.ts";
 import { createFakePi, FakeSession, type Loose } from "./fake-pi.ts";
 
@@ -274,6 +275,7 @@ test("matches Claude-style paths and optional Pi tool_call filters", () => {
     sourcePath: "/workspace/.agents/rules/typescript.md",
     sourceLabel: ".agents/rules/typescript.md",
     scope: "repo",
+    projectRoot: "/workspace",
     body: "Typed",
     hash: "hash",
     paths: ["./src/**/*.{ts,tsx}", ".github/**"],
@@ -757,7 +759,7 @@ test("user rules match files outside the working directory", () => {
 
 test("project rules do not apply outside the working directory", () => {
   const cwd = "/home/me/Projects/A";
-  const repoRule: Rule = { ...userRule(["**/*.sh"]), scope: "repo" };
+  const repoRule: Rule = { ...userRule(["**/*.sh"]), scope: "repo", projectRoot: cwd };
   assert.equal(ruleAppliesToTarget(repoRule, resolveTarget("scripts/a.sh", cwd)), true);
   assert.equal(ruleAppliesToTarget(repoRule, resolveTarget("/tmp/x.sh", cwd)), false);
   assert.equal(ruleAppliesToTarget({ ...repoRule, paths: undefined }, resolveTarget("/tmp/x.sh", cwd)), false);
@@ -931,5 +933,103 @@ test("a bash change matches rules that list edit or write in events", async () =
     assert.equal((await fake.emit("tool_call", bash("echo x >> notes.md"), { cwd })).block, true);
     assert.equal((await fake.emit("tool_call", bash("echo x > notes.txt"), { cwd })).block, true);
     assert.equal(await fake.emit("tool_call", bash("echo x > out.log"), { cwd }), undefined);
+  });
+});
+
+async function withTwoProjects(run: (cwd: string, other: string) => Promise<void>): Promise<void> {
+  await withTempDirectory(async (root) => {
+    const cwd = path.join(root, "project");
+    const other = path.join(root, "other");
+    await mkdir(path.join(cwd, ".git"), { recursive: true });
+    await mkdir(path.join(other, ".git"), { recursive: true });
+    await writeRule(other, ".pi/rules/other-ts.md", "---\npaths: \"src/**/*.ts\"\n---\nOther TypeScript rule");
+    await writeRule(other, ".agents/rules/other-base.md", "Other base rule");
+    await run(cwd, other);
+  });
+}
+
+function extensionTrusting(trusted: string[]) {
+  return makeExtension({ otherProjects: () => new OtherProjects({ get: (dir: string) => (trusted.includes(dir) ? true : null) }) });
+}
+
+test("a file in another trusted project loads the rules of that project", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    const fake = createFakePi();
+    extensionTrusting([other])(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+
+    const file = path.join(other, "src", "a.ts");
+    assert.equal((await fake.emit("tool_call", toolCall("edit", file), { cwd })).block, true);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    const label = (relative: string) => `${other}/${relative}`;
+    assert.deepEqual(fake.sent[0].message.details.targets, {
+      [label(".agents/rules/other-base.md")]: [file],
+      [label(".pi/rules/other-ts.md")]: [file],
+    });
+
+    assert.equal(await fake.emit("tool_call", toolCall("edit", path.join(other, "src", "b.ts")), { cwd }), undefined);
+    await rm(path.join(other, ".pi/rules/other-ts.md"));
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.deepEqual(fake.sent[1].message.details.removed.map((rule: Loose) => rule.label), [label(".pi/rules/other-ts.md")]);
+  });
+});
+
+test("a file in another project that pi does not trust loads no project rule", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    const fake = createFakePi();
+    extensionTrusting([])(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    assert.equal(await fake.emit("tool_call", toolCall("edit", path.join(other, "src", "a.ts")), { cwd }), undefined);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(fake.sent.length, 0);
+  });
+});
+
+test("the working project does not load its rules twice as another project", async () => {
+  await withTwoProjects(async (_cwd, other) => {
+    const cwd = other;
+    const fake = createFakePi();
+    extensionTrusting([other])(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.equal(await fake.emit("tool_call", toolCall("read", path.join(other, "src", "a.ts")), { cwd }), undefined);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+
+    const loads = fake.session.entries
+      .filter((entry) => entry.customType === CUSTOM_MESSAGE_TYPE)
+      .flatMap((entry: Loose) => entry.details.sources);
+    assert.deepEqual(loads.filter((label: string) => label.endsWith("other-ts.md")), [".pi/rules/other-ts.md"]);
+    assert.deepEqual(loads.filter((label: string) => label.endsWith("other-base.md")), [".agents/rules/other-base.md"]);
+  });
+});
+
+test("a trust file that cannot be read trusts no other project", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    const failing = new OtherProjects({ get: () => { throw new Error("broken trust.json"); } });
+    const fake = createFakePi();
+    makeExtension({ otherProjects: () => failing })(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    assert.equal(await fake.emit("tool_call", toolCall("edit", path.join(other, "src", "a.ts")), { cwd }), undefined);
+  });
+});
+
+test("a rule of the working project that discovery skips gets a notice, and a rule of another project keeps its place", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extensionTrusting([other])(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    await fake.emit("tool_call", toolCall("read", path.join(other, "src", "a.ts")), { cwd });
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+
+    // A new instance has not read the other project, as after a resume.
+    const resumed = createFakePi(fake.session);
+    extensionTrusting([other])(resumed.api);
+    await resumed.emit("session_start", { type: "session_start", reason: "resume" }, { cwd });
+    await writeRule(cwd, ".pi/rules/base.md", "---\npaths: [broken\n---\nBase rule");
+    const notice = await resumed.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.deepEqual(notice.message.details.removed.map((rule: Loose) => rule.label), [".pi/rules/base.md"]);
   });
 });

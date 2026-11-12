@@ -154,6 +154,16 @@ A user rule with `paths: "~/Projects/shop/**"` loads only for files of that proj
 When you start pi in your home directory, `.agents/rules/` and `~/.agents/rules/` are the same directory.
 Its rules then count as user rules.
 
+### Other projects
+
+When the agent reads or changes a file in another git project, the project rules of that project load too.
+Their globs are relative to that project, and a rule without `paths` loads with the first file of that project.
+The chat shows them with the project path, such as `~/Projects/shop/.pi/rules/style.md`.
+
+This happens only for a project that pi trusts, because its rules reach the model as instructions.
+pi saves trust decisions in `trust.json` in its agent directory, `~/.pi/agent/` unless `PI_CODING_AGENT_DIR` or `PI_CONFIG_DIR` moves it.
+A trusted parent directory also trusts the projects in it.
+
 ### Tools
 
 Use `events` to load a rule for some tools only:
@@ -239,7 +249,7 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 
 ## Limitations
 
-- **Project rules of other projects.** A file in another project loads only user rules, not the rules in the directories of that project.
+- **Projects that pi does not trust.** A file in another project loads the rules of that project only when pi trusts it.
 - **Other shell changes.** Commands such as `rm`, `ln`, `chmod`, and `dd of=`, and code inside a heredoc, such as `python3 - <<EOF`, do not count as changes. A file that a script changes counts as a change only through the forms above. When the command names that file, as in `python3 update.py src/a.ts`, the rule loads after the command, like a read.
 
 ## Contributing
