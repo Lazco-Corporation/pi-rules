@@ -1,0 +1,74 @@
+test/rules.test.ts
+  s_7fc6bd9345386e::t_72401fea97f2a9 863
+  s_7fc6bd9345386e::t_651ed01c08a84d 847,864-888
+  s_7fc6bd9345386e::t_389ce282575dc7 889-914
+  s_7fc6bd9345386e::t_857b7599bef594 8-9,915-975
+  s_7fc6bd9345386e::t_c6bcbf70e38c4f 976-977
+  s_7fc6bd9345386e::t_0e088f5604a804 278,762
+README.md
+  s_7fc6bd9345386e::t_54dcf8a7832850 21,138,178-194
+  s_7fc6bd9345386e::t_4de864a030cb0e 82-94,248
+  s_7fc6bd9345386e::t_58704089c18d44 154-162,247
+src/discovery.ts
+  s_7fc6bd9345386e::t_651ed01c08a84d 188-191,198
+  s_7fc6bd9345386e::t_9d477d1387ee38 46-47,118-119,122
+src/types.ts
+  s_7fc6bd9345386e::t_d1072db1601a7e 28
+  s_7fc6bd9345386e::t_651ed01c08a84d 23-24,27
+  s_7fc6bd9345386e::t_9d477d1387ee38 15-16
+CHANGELOG.md
+  s_7fc6bd9345386e::t_69d7ff13037adf 27-34,81
+  s_7fc6bd9345386e::t_fd3a72899d823e 18-26,80
+  s_7fc6bd9345386e::t_897bbd47b537e9 7-17,79
+src/index.ts
+  s_7fc6bd9345386e::t_651ed01c08a84d 209
+  s_7fc6bd9345386e::t_7ea275bc99dcbb 8,12-13,16,180-181,186-187,193-196,199-200,202,204,249-261
+  s_7fc6bd9345386e::t_ba1cd118009611 262-263
+  s_7fc6bd9345386e::t_f0daa7b67e3f19 129
+  s_7fc6bd9345386e::t_28381f0efb67db 2,14,27,29,113,115-116,123,125-128,133-135,173,221,236,333-339
+  s_7fc6bd9345386e::t_5d0e058574da6a 136
+  s_7fc6bd9345386e::t_fb34af54f488ee 159,188-192,197-198,201,203
+  s_7fc6bd9345386e::t_96112516f3eac1 137,340-341
+package.json
+  s_7fc6bd9345386e::t_217bc7ee628063 48
+  s_7fc6bd9345386e::t_433c8022363088 59
+test/bash.test.ts
+  s_7fc6bd9345386e::t_287ccd5d3c2f4f 86
+  s_7fc6bd9345386e::t_389ce282575dc7 79
+  s_7fc6bd9345386e::t_825ef41747dfba 83-85,87-88
+  s_7fc6bd9345386e::t_47cd1835963b70 1-78,80-82
+src/matching.ts
+  s_7fc6bd9345386e::t_1f521a42b5c4f2 25-26,28
+  s_7fc6bd9345386e::t_9d477d1387ee38 29-32,41,46-50,52,59,71-82
+  s_7fc6bd9345386e::t_89f2fb1feb7869 83
+src/bash.ts
+  s_7fc6bd9345386e::t_825ef41747dfba 27-30,32-33
+  s_7fc6bd9345386e::t_1f521a42b5c4f2 40,74,78,87,141-149,175-182
+  s_7fc6bd9345386e::t_c6fe4be0f5b42a 1-26,34-39,41-62,65-67,69-72,75-77,79-86,88-140,150-174,183-214
+  s_7fc6bd9345386e::t_ccb714747ccbf6 31
+  s_7fc6bd9345386e::t_f3bbd7ffd639b9 63-64,68,73
+AGENTS.md
+  s_7fc6bd9345386e::t_8a61bccd90640e 26
+  s_7fc6bd9345386e::t_eb7826f366fdb9 27
+bun.lock
+  s_7fc6bd9345386e::t_d0b6fedbd667af 9,17,131-132,247-248
+src/projects.ts
+  s_7fc6bd9345386e::t_13f7dcc4ffca23 1-14,17,22-83
+  s_7fc6bd9345386e::t_9cc6fece4c5c28 15-16,18-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "04a286f7784b5d3a8317f761f6649085865663b5",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
