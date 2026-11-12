@@ -1,0 +1,32 @@
+src/discovery.ts
+  s_7fc6bd9345386e::t_a21ccf1820bea5 144,186,332-333
+test/rules.test.ts
+  s_7fc6bd9345386e::t_a21ccf1820bea5 816,845-858
+  s_7fc6bd9345386e::t_bf82c570f86704 859-860
+README.md
+  s_7fc6bd9345386e::t_a21ccf1820bea5 90
+src/index.ts
+  s_7fc6bd9345386e::t_a21ccf1820bea5 61-62,110-116
+src/state.ts
+  s_7fc6bd9345386e::t_a21ccf1820bea5 78-79
+src/types.ts
+  s_7fc6bd9345386e::t_a21ccf1820bea5 16
+CHANGELOG.md
+  s_7fc6bd9345386e::t_a7a0a9b46d56e7 15-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5ddb1dd9f4491f00b35309f4ffa2476b68ab626",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
