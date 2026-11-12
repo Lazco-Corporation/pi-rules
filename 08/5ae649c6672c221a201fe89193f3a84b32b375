@@ -1,0 +1,43 @@
+src/projects.ts
+  s_7fc6bd9345386e::t_13f7dcc4ffca23 1-14,17,22-83
+  s_7fc6bd9345386e::t_9cc6fece4c5c28 15-16,18-21
+src/discovery.ts
+  s_7fc6bd9345386e::t_9d477d1387ee38 46-47,118-119,122
+src/types.ts
+  s_7fc6bd9345386e::t_9d477d1387ee38 15-16
+src/index.ts
+  s_7fc6bd9345386e::t_f0daa7b67e3f19 129
+  s_7fc6bd9345386e::t_28381f0efb67db 2,14,27,29,113,115-116,123,125-128,133-135,173,221,236,333-339
+  s_7fc6bd9345386e::t_5d0e058574da6a 136
+  s_7fc6bd9345386e::t_fb34af54f488ee 159,188-192,197-198,201,203
+  s_7fc6bd9345386e::t_96112516f3eac1 137,340-341
+test/rules.test.ts
+  s_7fc6bd9345386e::t_857b7599bef594 8-9,915-975
+  s_7fc6bd9345386e::t_c6bcbf70e38c4f 976-977
+  s_7fc6bd9345386e::t_0e088f5604a804 278,762
+src/matching.ts
+  s_7fc6bd9345386e::t_9d477d1387ee38 29-32,41,46-50,52,59,71-82
+  s_7fc6bd9345386e::t_89f2fb1feb7869 83
+AGENTS.md
+  s_7fc6bd9345386e::t_eb7826f366fdb9 27
+CHANGELOG.md
+  s_7fc6bd9345386e::t_897bbd47b537e9 7-17,79
+README.md
+  s_7fc6bd9345386e::t_58704089c18d44 154-162,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "085ae649c6672c221a201fe89193f3a84b32b375",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
