@@ -14,7 +14,8 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 
 ### Fixed
 
-- A rule that pi-rules skips, for example after you break its frontmatter, now also gets the notice that it no longer applies.
+- A rule of the working project or a user rule that pi-rules skips, for example after you break its frontmatter, now also gets the notice that it no longer applies.
+  A rule of another project gets the notice only when its file is gone.
 
 ## [0.11.0] - 2026-11-12
 

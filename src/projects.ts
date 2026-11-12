@@ -26,8 +26,10 @@ export class OtherProjects {
     this.home = home;
   }
 
-  /** The rules of the trusted project that holds `absolutePath`, or none when it is the working project. */
-  /** `discovered` holds the projects that the current tool call already read, so each project is read once per call. */
+  /**
+   * The rules of the trusted project that holds `absolutePath`, or none when it is the working project.
+   * @param discovered The projects that the current tool call already read, so each project is read once per call.
+   */
   async rulesFor(
     absolutePath: string,
     cwd: string,
