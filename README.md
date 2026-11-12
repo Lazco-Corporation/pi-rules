@@ -1,58 +1,68 @@
+<div align="center">
+
 # pi-rules
 
-Claude-compatible, file-scoped project rules for [Pi](https://pi.dev/) agents and subagents.
+Pi extension: load Markdown rules into the agent context, for the whole project or only for matching files.
 
-Use Markdown files to give Pi durable instructions for an entire repository or only for matching files. Existing `.claude/rules/` and `.agents/rules/` directories can work without duplication.
+[![npm](https://img.shields.io/npm/v/@lazco/pi-rules)](https://www.npmjs.com/package/@lazco/pi-rules) [![License](https://img.shields.io/npm/l/@lazco/pi-rules)](LICENSE)
 
-## Install
+[Installation](#installation) · [Usage](#usage) · [Rule files](#rule-files) · [Frontmatter](#frontmatter) · [Configuration](#configuration) · [Limitations](#limitations)
+
+</div>
+
+`@lazco/pi-rules` is a fork of [`tigorlazuardi/pi-rules`](https://github.com/tigorlazuardi/pi-rules), maintained by Lazco Corporation.
+It reads the same rule files, so you can switch without a change to your rules.
+
+## Highlights
+
+- **Claude Code compatible.** Reads `.claude/rules/` and `.agents/rules/` next to `.pi/rules/`, so one set of files serves both tools.
+- **Rules for matching files.** A rule with `paths` loads only when the agent reads, edits, or writes a matching file.
+- **Rule before change.** An edit or a write to a matching file waits until the agent has the rule, then the agent tries again.
+- **Linked skills.** A rule can load full pi [skills](#skills) when it loads.
+- **Six sources in one list.** Project and user directories merge by file name, and the first source wins. See [Rule files](#rule-files).
+
+## Installation
+
+You need [pi](https://github.com/earendil-works/pi) and Node.js 22.19.0 or later.
 
 ```sh
-pi install npm:@tigorhutasuhut/pi-rules
+pi install npm:@lazco/pi-rules
 ```
 
-For one project only:
+Then run `/reload` in pi.
+To check the install, run `pi list`.
+The list of user packages shows `npm:@lazco/pi-rules`.
+
+If you use `npm:@tigorhutasuhut/pi-rules`, remove it first:
 
 ```sh
-pi install -l npm:@tigorhutasuhut/pi-rules
-```
-
-Already running Pi? Use `/reload` after installation.
-
-Try without installing:
-
-```sh
-pi -e npm:@tigorhutasuhut/pi-rules
-```
-
-Pin, update, or remove the package:
-
-```sh
-pi install npm:@tigorhutasuhut/pi-rules@0.5.2
-pi update npm:@tigorhutasuhut/pi-rules
 pi remove npm:@tigorhutasuhut/pi-rules
 ```
 
-Versioned installs stay pinned during `pi update --extensions` and `pi update --all`. Use the unversioned install command again to resume package updates.
+If pi loads both packages, every rule loads twice.
 
-## Quick start
+## Usage
 
-Create `.pi/rules/project.md` in your repository:
+Create `.pi/rules/project.md` in your project:
 
 ```md
-Run focused tests after changing production code.
-Never commit secrets or generated build output.
+Run the focused tests after you change production code.
+Never commit secrets or build output.
 ```
 
-Start or reload Pi. Rules without `paths` frontmatter load before the model's first call:
+Start pi in the project and send a message.
+Before the first model call, the rule loads, and the chat shows:
 
 ```text
 Loaded rules:
 ↳ .pi/rules/project.md
 ```
 
-### Scope a rule to files
+Press the expand key on the message to see the full rule text and the files that matched.
 
-Add `paths` frontmatter when guidance only applies to part of the repository:
+### Rules for some files
+
+Add `paths` frontmatter when a rule applies only to part of the project:
 
 ```md
 ---
@@ -61,23 +71,55 @@ paths:
   - "test/**/*.ts"
 ---
 Use strict TypeScript.
-Keep tests close to the behavior they verify.
+Keep tests next to the behavior they check.
 ```
 
-Path-scoped rules activate around matching project-file reads, edits, and writes. Reads execute normally, then the rule enters model context before Pi processes the result. Edits and writes pause before execution so the rule can load; the agent then retries the mutation. Globs are repository-relative, use `/` separators, and match dotfiles.
+| The agent calls | What happens |
+| --- | --- |
+| `read` on a matching file | The read runs. The rule loads before the next model call. |
+| `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. |
 
-`paths` accepts one glob string or a list:
+Each rule loads once.
+After a compaction, the rules load again when they are needed.
 
-```md
----
-paths: "docs/**/*.md"
----
-Use concise headings and relative links.
-```
+## Rule files
 
-### Choose activation tools
+A rule is a Markdown file.
+pi-rules reads every `.md` file in these directories, also in subdirectories:
 
-Use non-standard `events` frontmatter to limit activation to selected tools:
+| Order | Directory | Scope |
+| --- | --- | --- |
+| 1 | `<project>/.pi/rules/` | project |
+| 2 | `<project>/.agents/rules/` | project |
+| 3 | `<project>/.claude/rules/` | project |
+| 4 | `~/.pi/agent/rules/` | user |
+| 5 | `~/.agents/rules/` | user |
+| 6 | `~/.claude/rules/` | user |
+
+`<project>` is the directory where you start pi.
+The file name without `.md` is the rule name.
+When two files have the same rule name, only the file from the first directory in the table loads.
+pi-rules follows symbolic links to files and directories.
+
+`PI_CODING_AGENT_DIR` or `PI_CONFIG_DIR` changes directory 4.
+`CLAUDE_CONFIG_DIR` changes directory 6.
+
+## Frontmatter
+
+All frontmatter fields are optional.
+A file without frontmatter is a rule for every session.
+
+| Field | Value | Effect |
+| --- | --- | --- |
+| `paths` | a glob or a list of globs | The rule loads only for matching files. |
+| `events` | `tool_call: <tool>` or a list of tools | The rule loads only for these tools: `read`, `edit`, `write`. |
+| `skills` | a skill name or a list of names | These skills load with the rule. |
+
+Globs are relative to `<project>`, use `/`, and match dotfiles.
+
+### Tools
+
+Use `events` to load a rule for some tools only:
 
 ```md
 ---
@@ -85,60 +127,37 @@ paths: "docs/**/*.md"
 events:
   tool_call: read
 ---
-Apply this guidance before reading documentation.
+Check the facts in the docs against the code.
 ```
 
-This rule activates after matching `read` calls, but not for `edit` or `write`. `events` keys are Pi event names; `tool_call` values filter its `toolName` payload. It accepts one of `read`, `edit`, or `write`, or a list. Omitting `events` preserves the default: all three tools. A rule with `events` but no `paths` applies to every project-local file target for the selected calls.
+This rule loads after a read of a matching file, but not for an edit or a write.
 
-Only the blockable `tool_call` Pi event is supported. Unsupported event or tool names skip the rule with a warning.
+### Skills
 
-### Load skills with a rule
-
-Use non-standard `skills` frontmatter to force-load full Pi skills when the rule activates:
+Use `skills` to load full pi skills with a rule:
 
 ```md
 ---
 paths: "src/frontend/**"
 skills:
   - frontend-design
-  - ui-spacing
 ---
-Follow the linked frontend workflows.
+Follow the linked frontend workflow.
 ```
 
-`skills` accepts one skill name or a list. Names resolve against Pi's discovered skill registry, so normal project trust, configured skill paths, collision handling, and `--no-skills` still apply. A linked skill loads even when its own frontmatter sets `disable-model-invocation: true`; the rule link acts as explicit invocation. Missing or unreadable skills emit a warning without blocking the rule.
+pi-rules finds the skill by name in the skills that pi found.
+The skill loads even when its frontmatter sets `disable-model-invocation: true`.
+A missing skill shows a warning, and the rule still loads.
 
-Rules and linked skills each inject once per compaction epoch. Unconditional rules load their skills before the first model call; scoped rules block the first matching `tool_call`, load their skills, then allow retries.
+## Configuration
 
-`paths`, `events`, and `skills` frontmatter are supported. Markdown without frontmatter is unconditional.
+A `rules.json` file turns pi-rules off or changes the directory list.
+pi-rules reads the first file that exists:
 
-## Rule discovery
+1. `<project>/.pi/rules.json`
+2. `~/.pi/agent/rules.json`
 
-Rules are read recursively from every configured source in priority order:
-
-1. `<repo>/.pi/rules/`
-2. `<repo>/.agents/rules/`
-3. `<repo>/.claude/rules/`
-4. `${PI_CODING_AGENT_DIR}/rules/`, or `${PI_CONFIG_DIR}/agent/rules/` when unset
-5. `~/.agents/rules/`
-6. `${CLAUDE_CONFIG_DIR}/rules/`, or `~/.claude/rules/` when unset
-
-Default Pi user rules live in `~/.pi/agent/rules/`.
-
-Rules from all sources are merged. The filename stem is the rule name: both `backend/auth.md` and `auth.md` are named `auth`. The first source containing a name wins; later rules with that name are skipped. Files are sorted within each source, so the first same-name file there wins too. Symlinked files and directories are followed with the same precedence; directory cycles are skipped.
-
-`PI_CODING_AGENT_DIR` points directly to Pi's agent directory. When unset, the directory resolves to `${PI_CONFIG_DIR:-~/.pi}/agent`.
-
-## Configure source priority
-
-Configuration can live at either level:
-
-| Level | Path |
-| --- | --- |
-| Repository | `<repo>/.pi/rules.json` |
-| User | `${PI_CODING_AGENT_DIR}/rules.json`, or `${PI_CONFIG_DIR:-~/.pi}/agent/rules.json` when unset |
-
-Repository configuration wins whenever `<repo>/.pi/rules.json` exists. Configurations are not merged, and an invalid repository configuration does not fall back to user configuration.
+The two files do not merge.
 
 ```json
 {
@@ -154,122 +173,30 @@ Repository configuration wins whenever `<repo>/.pi/rules.json` exists. Configura
 }
 ```
 
-Array order controls duplicate-name precedence. Remove a source to exclude it. Use an empty array to disable all rule discovery:
+| Field | Default | Effect |
+| --- | --- | --- |
+| `enabled` | `true` | `false` turns off all rules. |
+| `sources` | the six directories above | The directories to read, in order. `scope` is `repo` or `user`. `kind` is `pi`, `agents`, or `claude`. |
 
-```json
-{ "sources": [] }
-```
+To turn off the rules in one project, put `{ "enabled": false, "sources": [] }` in `<project>/.pi/rules.json`.
+An invalid file shows a warning, and no rule loads.
+pi-rules reads `rules.json` when a session starts and after a compaction.
 
-Supported values:
+## Limitations
 
-| Field | Values |
-| --- | --- |
-| `scope` | `repo`, `user` |
-| `kind` | `pi`, `agents`, `claude` |
+- **Files outside the project.** A `read`, `edit`, or `write` of a file outside `<project>` does not load a rule, also a user rule.
+- **Shell commands.** A file that a `bash` command changes does not load a rule.
+- **Branches.** After you go back to an earlier message with `/tree`, the new branch can miss rules that loaded on the old branch.
+- **Resume.** After a resume or `/reload`, rules that are already in the session can load again.
+- **Changed rules.** A rule that already loaded does not load again after you change its file, until the next compaction.
 
-`enabled` defaults to `true`. When `false`, rule and nudge injections are skipped. Unknown configuration fields are allowed. Invalid JSON or invalid configuration values emit a warning, inject no rules, and do not crash Pi. File configuration reloads at session start and after compaction.
+## Contributing
 
-## Commit nudges
-
-Commit nudges are opt-in. Enable them in project or user `rules.json`:
-
-```json
-{
-  "sources": [
-    { "scope": "repo", "kind": "pi" },
-    { "scope": "repo", "kind": "agents" },
-    { "scope": "repo", "kind": "claude" },
-    { "scope": "user", "kind": "pi" },
-    { "scope": "user", "kind": "agents" },
-    { "scope": "user", "kind": "claude" }
-  ],
-  "nudges": {
-    "afterCommit": true
-  }
-}
-```
-
-After a successful direct `git commit` or `rtk git commit` command settles, Pi reviews the committed work for a durable repository-specific convention. It creates or updates the smallest appropriate rule only when one is warranted. Nudge-created changes are never committed or pushed automatically.
-
-Nudges are disabled by default. `pi-rules` does not infer session roles.
-
-## Runtime configuration
-
-Other extensions can shallow-merge any configuration field into the current runtime through `pi-rules:config`:
-
-```ts
-import { emitPiRulesConfig } from "@tigorhutasuhut/pi-rules";
-
-pi.on("session_start", () => {
-  emitPiRulesConfig(pi, { enabled: false });
-});
-```
-
-Partial patches are accepted. Top-level fields use shallow-copy semantics, so a supplied `nudges` object replaces the previous `nudges` object:
-
-```ts
-emitPiRulesConfig(pi, {
-  sources: [{ scope: "repo", kind: "claude" }],
-  nudges: { afterCommit: false }
-});
-```
-
-The event bus is already scoped to the current Pi runtime, so no `ExtensionContext` needs to cross extension boundaries. Raw emitters may call `pi.events.emit("pi-rules:config", patch)`. Updates that fail the TypeBox configuration schema are rejected and shown through Pi's warning notification, or stderr when no UI exists. Patches apply immediately; emitters own event timing.
-
-Pi 0.80.10 and newer use the `typebox` package name for extension schemas. Import from `typebox` and `typebox/schema`; do not use the old `@sinclair/typebox` package name. Packages that deep-import `typebox/schema` should keep `typebox` as a runtime dependency so package loaders resolve the matching subpath implementation.
-
-## Runtime behavior
-
-- Unconditional rules and their linked skills inject once per compaction epoch before the first model call.
-- Scoped rules and their linked skills inject once per compaction epoch around matching `read`, `edit`, or `write` calls. Reads execute first and continue without retry; edits and writes pause before execution and ask the agent to retry after injection. `events.tool_call` can limit activation.
-- Rule files are rediscovered before governed tool calls and at turn end, so new rules and edits to not-yet-loaded rules reach the next eligible injection. Already-loaded rules refresh after compaction.
-- Parallel path matches are combined into one message; duplicate linked skills are injected once.
-- Tool results are never modified.
-- Collapsed messages list loaded rule sources; expanded messages show matched targets and full rule bodies.
-- Compaction resets activation and immediately restores unconditional rules.
-- Each loaded session maintains independent rule activation and nudge state.
-- Opt-in commit nudges wait for `agent_settled`, avoiding interruption of remaining tools or queued follow-ups.
-
-Package inheritance and extension allowlists determine which Pi sessions load these rules.
-
-## Choosing between rules, AGENTS.md, and skills
-
-- Use **rules** for always-on or file-scoped repository constraints.
-- Use **`AGENTS.md`** for broad project and directory context Pi should discover natively.
-- Use standalone **skills** for guidance loaded by task intent. Link them from rule `skills` frontmatter when file access must force activation.
-
-## Troubleshooting
-
-### Rules do not load
-
-1. Confirm package is enabled with `pi list` or `pi config`.
-2. Run `/reload` after installation or configuration changes.
-3. Check whether a higher-priority source contains the same rule filename stem.
-4. Read stderr for `[pi-rules] invalid config` or `[pi-rules] skipped` warnings.
-
-### Path rule does not activate
-
-- Make glob repository-relative: `src/**/*.ts`, not an absolute path.
-- Confirm Pi attempted `read`, `edit`, or `write` on a matching file and that `events.tool_call`, when present, includes that tool name. Matching reads should execute and then inject the rule; matching edits or writes should pause, inject, then retry.
-- Files outside current repository do not activate project rules.
-- Rule already loaded in current compaction epoch will not load again until compaction.
-
-### A Claude rule is missing
-
-A higher-priority source contains the same rule filename stem. Rename one rule or change source priority in `.pi/rules.json`. Unique Claude rules merge normally.
-
-## Development
-
-Requires Node.js 20.6 or newer.
-
-```sh
-npm install
-npm run check
-npm pack --dry-run
-```
-
-Tests use Node's built-in `node:test` runner.
+Report bugs and ask questions in [GitHub issues](https://github.com/Lazco-Corporation/pi-rules/issues).
+Pull requests are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup and the tests.
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0-or-later](LICENSE).
+The code from the original project is under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -3,17 +3,24 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { discoverRules, loadRuleConfig, parseRuleFile } from "../dist/discovery.js";
-import extension, {
-  CUSTOM_MESSAGE_TYPE,
-  CONFIG_EVENT,
-  NUDGE_MESSAGE_TYPE,
-  emitPiRulesConfig,
-  isSuccessfulGitCommit,
-} from "../dist/index.js";
-import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "../dist/matching.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Rule } from "../src/types.ts";
+import { discoverRules, loadRuleConfig, parseRuleFile } from "../src/discovery.ts";
+import extension, { CUSTOM_MESSAGE_TYPE } from "../src/index.ts";
+import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "../src/matching.ts";
 
-async function withTempDirectory(run) {
+// Keep the developer's own rules out of every test: discovery reads the home directory.
+const isolatedHome = await mkdtemp(path.join(os.tmpdir(), "pi-rules-home-"));
+process.env.HOME = isolatedHome;
+delete process.env.PI_CODING_AGENT_DIR;
+delete process.env.PI_CONFIG_DIR;
+delete process.env.CLAUDE_CONFIG_DIR;
+
+// The tests drive the handlers with partial events and read loosely shaped results.
+type Loose = any;
+type Handler = (event: Loose, ctx: Loose) => unknown;
+
+async function withTempDirectory(run: (directory: string) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pi-rules-test-"));
   try {
     await run(directory);
@@ -22,47 +29,36 @@ async function withTempDirectory(run) {
   }
 }
 
-async function writeRule(cwd, relativePath, content) {
+async function writeRule(cwd: string, relativePath: string, content: string): Promise<void> {
   const target = path.join(cwd, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, content, "utf8");
 }
 
 function createFakePi() {
-  const handlers = new Map();
-  const customHandlers = new Map();
-  const renderers = new Map();
-  const sent = [];
-  return {
-    api: {
-      events: {
-        on(event, handler) {
-          const eventHandlers = customHandlers.get(event) ?? [];
-          eventHandlers.push(handler);
-          customHandlers.set(event, eventHandlers);
-          return () => customHandlers.set(event, eventHandlers.filter((candidate) => candidate !== handler));
-        },
-        emit(event, value) {
-          for (const handler of customHandlers.get(event) ?? []) handler(value);
-        },
-      },
-      on(event, handler) {
-        const eventHandlers = handlers.get(event) ?? [];
-        eventHandlers.push(handler);
-        handlers.set(event, eventHandlers);
-      },
-      registerMessageRenderer(customType, renderer) {
-        renderers.set(customType, renderer);
-      },
-      sendMessage(message, options) {
-        sent.push({ message, options });
-      },
+  const handlers = new Map<string, Handler[]>();
+  const renderers = new Map<string, Loose>();
+  const sent: Loose[] = [];
+  const api = {
+    on(event: string, handler: Handler) {
+      const eventHandlers = handlers.get(event) ?? [];
+      eventHandlers.push(handler);
+      handlers.set(event, eventHandlers);
     },
+    registerMessageRenderer(customType: string, renderer: Loose) {
+      renderers.set(customType, renderer);
+    },
+    sendMessage(message: Loose, options?: Loose) {
+      sent.push({ message, options });
+    },
+  };
+  return {
+    api: api as unknown as ExtensionAPI,
     handlers,
     renderers,
     sent,
-    async emit(event, value, ctx = {}) {
-      let result;
+    async emit(event: string, value: Loose, ctx: Loose = {}): Promise<Loose> {
+      let result: unknown;
       for (const handler of handlers.get(event) ?? []) {
         result = await handler(value, ctx);
       }
@@ -71,7 +67,7 @@ function createFakePi() {
   };
 }
 
-function toolResult(toolName, filePath, overrides = {}) {
+function toolResult(toolName: string, filePath: string, overrides: Record<string, unknown> = {}): Loose {
   return {
     type: "tool_result",
     toolName,
@@ -84,7 +80,7 @@ function toolResult(toolName, filePath, overrides = {}) {
   };
 }
 
-function toolCall(toolName, filePath, overrides = {}) {
+function toolCall(toolName: string, filePath: string, overrides: Record<string, unknown> = {}): Loose {
   return {
     type: "tool_call",
     toolName,
@@ -92,10 +88,6 @@ function toolCall(toolName, filePath, overrides = {}) {
     input: { path: filePath },
     ...overrides,
   };
-}
-
-function bashResult(command, overrides = {}) {
-  return toolResult("bash", undefined, { input: { command }, ...overrides });
 }
 
 test("merges rule roots by priority and deduplicates rule names", async () => {
@@ -111,9 +103,9 @@ test("merges rule roots by priority and deduplicates rule names", async () => {
     await writeRule(root, "home/.pi/agent/rules/user.md", "User rule");
     await writeRule(cwd, ".pi/rules/ignored.txt", "not markdown");
 
-    const result = await discoverRules(cwd, { home, env: {} });
+    const result: Loose = await discoverRules(cwd, { home, env: {} });
 
-    assert.deepEqual(result.rules.map((rule) => rule.sourceLabel), [
+    assert.deepEqual(result.rules.map((rule: Rule) => rule.sourceLabel), [
       ".pi/rules/backend/auth.md",
       ".pi/rules/z.md",
       ".agents/rules/a.md",
@@ -140,9 +132,9 @@ test("follows symlinks while preserving source precedence and stopping cycles", 
     await symlink(shared, path.join(cwd, ".agents/rules/shared"), "dir");
     await symlink(shared, path.join(shared, "cycle"), "dir");
 
-    const result = await discoverRules(cwd, { home: path.join(root, "home"), env: {} });
+    const result: Loose = await discoverRules(cwd, { home: path.join(root, "home"), env: {} });
 
-    assert.deepEqual(result.rules.map((rule) => [rule.sourceLabel, rule.body]), [
+    assert.deepEqual(result.rules.map((rule: Rule) => [rule.sourceLabel, rule.body]), [
       [".pi/rules/auth.md", "Repo auth"],
       [".pi/rules/single.md", "Linked file"],
       [".agents/rules/shared/common.md", "Linked directory"],
@@ -163,28 +155,28 @@ test("merges configured global rule roots", async () => {
     await writeRule(root, "home/.claude/rules/claude.md", "Claude rule");
     await writeRule(root, "home/.agents/rules/agents.md", "Agents rule");
 
-    const configured = await discoverRules(cwd, {
+    const configured: Loose = await discoverRules(cwd, {
       home,
       env: { PI_CONFIG_DIR: piConfig, PI_CODING_AGENT_DIR: codingAgent },
     });
-    const piConfigOnly = await discoverRules(cwd, { home, env: { PI_CONFIG_DIR: piConfig } });
-    const codingAgentOnly = await discoverRules(cwd, { home, env: { PI_CODING_AGENT_DIR: codingAgent } });
-    const agentsFallback = await discoverRules(cwd, { home, env: { CLAUDE_CONFIG_DIR: path.join(home, ".claude") } });
+    const piConfigOnly: Loose = await discoverRules(cwd, { home, env: { PI_CONFIG_DIR: piConfig } });
+    const codingAgentOnly: Loose = await discoverRules(cwd, { home, env: { PI_CODING_AGENT_DIR: codingAgent } });
+    const agentsFallback: Loose = await discoverRules(cwd, { home, env: { CLAUDE_CONFIG_DIR: path.join(home, ".claude") } });
     await rm(path.join(home, ".agents"), { recursive: true, force: true });
-    const claudeFallback = await discoverRules(cwd, { home, env: { CLAUDE_CONFIG_DIR: path.join(home, ".claude") } });
+    const claudeFallback: Loose = await discoverRules(cwd, { home, env: { CLAUDE_CONFIG_DIR: path.join(home, ".claude") } });
     await writeRule(root, "home/.pi/agent/rules/default-agent.md", "Default coding agent rule");
-    const defaultCodingAgent = await discoverRules(cwd, { home, env: {} });
+    const defaultCodingAgent: Loose = await discoverRules(cwd, { home, env: {} });
 
-    assert.deepEqual(configured.rules.map((rule) => rule.body), ["Coding agent rule", "Agents rule", "Claude rule"]);
-    assert.deepEqual(piConfigOnly.rules.map((rule) => rule.body), ["PI config rule", "Agents rule", "Claude rule"]);
-    assert.deepEqual(codingAgentOnly.rules.map((rule) => rule.body), [
+    assert.deepEqual(configured.rules.map((rule: Rule) => rule.body), ["Coding agent rule", "Agents rule", "Claude rule"]);
+    assert.deepEqual(piConfigOnly.rules.map((rule: Rule) => rule.body), ["PI config rule", "Agents rule", "Claude rule"]);
+    assert.deepEqual(codingAgentOnly.rules.map((rule: Rule) => rule.body), [
       "Coding agent rule",
       "Agents rule",
       "Claude rule",
     ]);
-    assert.deepEqual(agentsFallback.rules.map((rule) => rule.body), ["Agents rule", "Claude rule"]);
-    assert.deepEqual(claudeFallback.rules.map((rule) => rule.body), ["Claude rule"]);
-    assert.deepEqual(defaultCodingAgent.rules.map((rule) => rule.body), ["Default coding agent rule", "Claude rule"]);
+    assert.deepEqual(agentsFallback.rules.map((rule: Rule) => rule.body), ["Agents rule", "Claude rule"]);
+    assert.deepEqual(claudeFallback.rules.map((rule: Rule) => rule.body), ["Claude rule"]);
+    assert.deepEqual(defaultCodingAgent.rules.map((rule: Rule) => rule.body), ["Default coding agent rule", "Claude rule"]);
   });
 });
 
@@ -224,18 +216,16 @@ test("loads user config from resolved Pi coding-agent directory", async () => {
         version: 1,
         enabled: false,
         sources: [{ scope: "user", kind: "agents" }],
-        nudges: { afterCommit: true, future: "allowed" },
       }),
     );
     await writeRule(root, "home/.agents/rules/user.md", "User agents rule");
 
     const config = await loadRuleConfig(cwd, { home, env: { PI_CONFIG_DIR: piConfig } });
-    const result = await discoverRules(cwd, { home, env: { PI_CONFIG_DIR: piConfig }, sources: config.sources });
+    const result: Loose = await discoverRules(cwd, { home, env: { PI_CONFIG_DIR: piConfig }, sources: config.sources });
 
     assert.equal(config.configPath, path.join(piConfig, "agent", "rules.json"));
     assert.equal(config.enabled, false);
-    assert.equal(config.nudgeAfterCommit, true);
-    assert.deepEqual(result.rules.map((rule) => rule.body), ["User agents rule"]);
+    assert.deepEqual(result.rules.map((rule: Rule) => rule.body), ["User agents rule"]);
   });
 });
 
@@ -244,7 +234,7 @@ test("warns without crashing when config fails TypeBox validation", async () => 
     await writeRule(cwd, ".pi/rules.json", JSON.stringify({ version: 1, sources: [{ scope: "repo", kind: "nope" }] }));
     await writeRule(cwd, ".pi/rules/base.md", "Must not inject");
     const fake = createFakePi();
-    const warnings = [];
+    const warnings: Loose[] = [];
     const originalWrite = process.stderr.write;
     process.stderr.write = (chunk) => {
       warnings.push(String(chunk));
@@ -277,11 +267,11 @@ test("accepts path, event, and skill filters while diagnosing malformed frontmat
     await writeFile(unsupportedEvent, "---\nevents:\n  tool_result: read\n---\nBad event", "utf8");
     await writeFile(unsupportedTool, "---\nevents:\n  tool_call: bash\n---\nBad tool", "utf8");
 
-    const validResult = await parseRuleFile(valid, "valid.md");
-    const extraResult = await parseRuleFile(extra, "extra.md");
-    const malformedResult = await parseRuleFile(malformed, "malformed.md");
-    const eventResult = await parseRuleFile(unsupportedEvent, "unsupported-event.md");
-    const toolResult = await parseRuleFile(unsupportedTool, "unsupported-tool.md");
+    const validResult: Loose = await parseRuleFile(valid, "valid.md");
+    const extraResult: Loose = await parseRuleFile(extra, "extra.md");
+    const malformedResult: Loose = await parseRuleFile(malformed, "malformed.md");
+    const eventResult: Loose = await parseRuleFile(unsupportedEvent, "unsupported-event.md");
+    const toolResult: Loose = await parseRuleFile(unsupportedTool, "unsupported-tool.md");
 
     assert.deepEqual(validResult.rule.paths, ["src/**/*.ts", "tests/**"]);
     assert.deepEqual(validResult.rule.events, { tool_call: ["edit", "write"] });
@@ -298,8 +288,8 @@ test("warns and skips non-string paths without blocking valid sibling rules", as
     await writeRule(cwd, ".pi/rules/bad-object.md", "---\npaths:\n  include: src/**\n---\nBad object");
     await writeRule(cwd, ".pi/rules/bad-list.md", "---\npaths: [src/**, 42]\n---\nBad list");
     await writeRule(cwd, ".pi/rules/valid.md", "Valid sibling");
-    const warnings = [];
-    const ctx = { cwd, hasUI: true, ui: { notify: (message, level) => warnings.push({ message, level }) } };
+    const warnings: Loose[] = [];
+    const ctx = { cwd, hasUI: true, ui: { notify: (message: string, level: string) => warnings.push({ message, level }) } };
     const fake = createFakePi();
     extension(fake.api);
 
@@ -323,16 +313,8 @@ test("extracts project-local read/edit/write targets before execution", () => {
   assert.equal(extractTarget(toolResult("read", "src/a.ts", { isError: true }), cwd), undefined);
 });
 
-test("recognizes successful direct git commit commands", () => {
-  assert.equal(isSuccessfulGitCommit(bashResult("git commit -m 'feat: ship'")), true);
-  assert.equal(isSuccessfulGitCommit(bashResult("rtk git commit -m 'feat: ship' && rtk git push")), true);
-  assert.equal(isSuccessfulGitCommit(bashResult("cd repo && git -C nested commit --amend")), true);
-  assert.equal(isSuccessfulGitCommit(bashResult("git status")), false);
-  assert.equal(isSuccessfulGitCommit(bashResult("git commit -m nope", { isError: true })), false);
-});
-
 test("matches Claude-style paths and optional Pi tool_call filters", () => {
-  const rule = {
+  const rule: Rule = {
     id: "rule",
     sourcePath: "/workspace/.agents/rules/typescript.md",
     sourceLabel: ".agents/rules/typescript.md",
@@ -381,8 +363,8 @@ test("loads linked skills from Pi registry regardless model invocation setting",
       "---\nname: hidden-skill\ndescription: Hidden from model discovery\ndisable-model-invocation: true\n---\n# Hidden workflow\n\nFollow hidden steps.",
     );
     const fake = createFakePi();
-    const warnings = [];
-    const ctx = { cwd, hasUI: true, ui: { notify: (message) => warnings.push(message) } };
+    const warnings: Loose[] = [];
+    const ctx = { cwd, hasUI: true, ui: { notify: (message: string) => warnings.push(message) } };
     extension(fake.api);
     await fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
     await fake.emit(
@@ -568,90 +550,6 @@ test("no path match produces no row or message", async () => {
   });
 });
 
-test("nudges only after a successful commit settles", async () => {
-  await withTempDirectory(async (cwd) => {
-    await writeRule(
-      cwd,
-      ".pi/rules.json",
-      JSON.stringify({ sources: [], nudges: { afterCommit: true } }),
-    );
-    const fake = createFakePi();
-    extension(fake.api);
-    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
-
-    await fake.emit("tool_result", bashResult("rtk git commit -m 'feat: ship'"), { cwd });
-    assert.equal(fake.sent.length, 0);
-    await fake.emit("agent_settled", { type: "agent_settled" }, { cwd });
-
-    assert.equal(fake.sent.length, 1);
-    assert.equal(fake.sent[0].message.customType, NUDGE_MESSAGE_TYPE);
-    assert.equal(fake.sent[0].message.display, true);
-    assert.match(fake.sent[0].message.content, /durable, repository-specific convention/);
-    assert.deepEqual(fake.sent[0].options, { deliverAs: "followUp", triggerTurn: true });
-
-    await fake.emit("agent_settled", { type: "agent_settled" }, { cwd });
-    assert.equal(fake.sent.length, 1);
-  });
-});
-
-test("config event shallow-merges valid patches and rejects invalid updates", async () => {
-  await withTempDirectory(async (cwd) => {
-    await writeRule(
-      cwd,
-      ".pi/rules.json",
-      JSON.stringify({ sources: [], nudges: { afterCommit: true } }),
-    );
-    const fake = createFakePi();
-    const notices = [];
-    const ctx = { cwd, hasUI: true, ui: { notify: (message, level) => notices.push({ message, level }) } };
-    extension(fake.api);
-    await fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
-    await fake.emit("tool_result", bashResult("git commit -m first"), ctx);
-
-    emitPiRulesConfig(fake.api, { enabled: false });
-    fake.api.events.emit(CONFIG_EVENT, { enabled: "true" });
-    await fake.emit("agent_settled", { type: "agent_settled" }, ctx);
-    await fake.emit("tool_result", bashResult("git commit -m suppressed"), ctx);
-    await fake.emit("agent_settled", { type: "agent_settled" }, ctx);
-    assert.equal(fake.sent.length, 0);
-    assert.equal(notices.length, 1);
-    assert.equal(notices[0].level, "warning");
-    assert.match(notices[0].message, /rejected pi-rules:config/);
-
-    fake.api.events.emit(CONFIG_EVENT, { enabled: true });
-    await fake.emit("tool_result", bashResult("git commit -m enabled"), ctx);
-    await fake.emit("agent_settled", { type: "agent_settled" }, { cwd });
-    assert.equal(fake.sent.length, 1);
-    assert.equal(fake.sent[0].message.customType, NUDGE_MESSAGE_TYPE);
-  });
-});
-
-test("disabled config suppresses rule injection until re-enabled", async () => {
-  await withTempDirectory(async (cwd) => {
-    await writeRule(cwd, ".pi/rules.json", JSON.stringify({ sources: [{ scope: "repo", kind: "pi" }], nudges: { afterCommit: true } }));
-    await writeRule(cwd, ".pi/rules/base.md", "Shared base rule");
-    await writeRule(cwd, ".claude/rules/base.md", "Claude base rule");
-    const fake = createFakePi();
-    extension(fake.api);
-    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
-    emitPiRulesConfig(fake.api, {
-      enabled: false,
-      sources: [{ scope: "repo", kind: "claude" }],
-      nudges: { afterCommit: false },
-    });
-    const disabled = await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
-    assert.equal(disabled, undefined);
-
-    emitPiRulesConfig(fake.api, { enabled: true });
-    const enabled = await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
-    assert.match(enabled.message.content, /Claude base rule/);
-    assert.doesNotMatch(enabled.message.content, /Shared base rule/);
-    await fake.emit("tool_result", bashResult("git commit -m no-nudge"), { cwd });
-    await fake.emit("agent_settled", { type: "agent_settled" }, { cwd });
-    assert.equal(fake.sent.length, 0);
-  });
-});
-
 test("separate extension instances inject independently", async () => {
   await withTempDirectory(async (cwd) => {
     await writeRule(cwd, ".pi/rules/base.md", "Shared base rule");
@@ -688,11 +586,11 @@ test("renderer collapses to sources and expands targets plus full body", () => {
     },
     timestamp: Date.now(),
   };
-  const theme = { fg: (_color, text) => text };
+  const theme = { fg: (_color: string, text: string) => text };
 
   const collapsed = renderer(message, { expanded: false }, theme)
     .render(200)
-    .map((line) => line.trimEnd())
+    .map((line: string) => line.trimEnd())
     .join("\n")
     .trimEnd();
   const expanded = renderer(message, { expanded: true }, theme).render(200).join("\n").trimEnd();

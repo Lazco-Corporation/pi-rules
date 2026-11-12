@@ -1,7 +1,7 @@
 import path from "node:path";
 import picomatch from "picomatch";
 import type { ToolCallEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import type { Rule } from "./types.js";
+import type { Rule } from "./types.ts";
 
 const FILE_TOOLS = new Set(["read", "edit", "write"]);
 

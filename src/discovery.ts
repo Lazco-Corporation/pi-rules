@@ -4,7 +4,7 @@ import path from "node:path";
 import Type from "typebox";
 import { Compile } from "typebox/compile";
 import { parseDocument } from "yaml";
-import type { DiscoveryResult, Rule, RuleDiagnostic, RuleEvents, RuleToolName } from "./types.js";
+import type { DiscoveryResult, Rule, RuleDiagnostic, RuleEvents, RuleToolName } from "./types.ts";
 
 const FRONTMATTER_RE = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const RULE_TOOL_NAMES = new Set<RuleToolName>(["read", "edit", "write"]);
@@ -14,19 +14,14 @@ const RULE_SOURCE_SCHEMA = Type.Object({
   kind: Type.Union([Type.Literal("pi"), Type.Literal("agents"), Type.Literal("claude")]),
 });
 
-export const RULE_CONFIG_SCHEMA = Type.Object({
+const RULE_CONFIG_SCHEMA = Type.Object({
   enabled: Type.Optional(Type.Boolean()),
   sources: Type.Array(RULE_SOURCE_SCHEMA),
-  nudges: Type.Optional(Type.Object({ afterCommit: Type.Optional(Type.Boolean()) })),
 });
-export const RULE_CONFIG_PATCH_SCHEMA = Type.Partial(RULE_CONFIG_SCHEMA);
 
 const RULE_CONFIG_VALIDATOR = Compile(RULE_CONFIG_SCHEMA);
-const RULE_CONFIG_PATCH_VALIDATOR = Compile(RULE_CONFIG_PATCH_SCHEMA);
 
 export type RuleSource = Type.Static<typeof RULE_SOURCE_SCHEMA>;
-export type RuleConfig = Type.Static<typeof RULE_CONFIG_SCHEMA>;
-export type RuleConfigPatch = Type.Static<typeof RULE_CONFIG_PATCH_SCHEMA>;
 
 export const DEFAULT_RULE_SOURCES: RuleSource[] = [
   { scope: "repo", kind: "pi" },
@@ -51,18 +46,11 @@ interface DiscoveryOptions {
 export interface RuleConfigResult {
   enabled: boolean;
   sources: RuleSource[];
-  nudgeAfterCommit: boolean;
   configPath?: string;
   diagnostic?: RuleDiagnostic;
 }
 
 type ParseResult = { rule: Rule } | { diagnostic: RuleDiagnostic };
-
-export function validateRuleConfigPatch(value: unknown): { config: RuleConfigPatch } | { reason: string } {
-  if (RULE_CONFIG_PATCH_VALIDATOR.Check(value)) return { config: value };
-  const [first] = RULE_CONFIG_PATCH_VALIDATOR.Errors(value);
-  return { reason: first ? `${first.instancePath || "/"}: ${first.message}` : "schema validation failed" };
-}
 
 export async function loadRuleConfig(cwd: string, options: DiscoveryOptions = {}): Promise<RuleConfigResult> {
   const home = options.home ?? os.homedir();
@@ -97,12 +85,11 @@ export async function loadRuleConfig(cwd: string, options: DiscoveryOptions = {}
     return {
       enabled: value.enabled ?? true,
       sources: value.sources,
-      nudgeAfterCommit: value.nudges?.afterCommit ?? false,
       configPath,
     };
   }
 
-  return { enabled: true, sources: DEFAULT_RULE_SOURCES, nudgeAfterCommit: false };
+  return { enabled: true, sources: DEFAULT_RULE_SOURCES };
 }
 
 export async function discoverRules(cwd: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
@@ -272,7 +259,7 @@ function resolveRuleRoot(source: RuleSource, cwd: string, env: NodeJS.ProcessEnv
 }
 
 function invalidConfig(configPath: string, sourceLabel: string, reason: string): RuleConfigResult {
-  return { enabled: false, sources: [], nudgeAfterCommit: false, configPath, diagnostic: { sourceLabel, reason } };
+  return { enabled: false, sources: [], configPath, diagnostic: { sourceLabel, reason } };
 }
 
 function labelPath(target: string, cwd: string, home: string): string {
