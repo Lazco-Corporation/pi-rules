@@ -18,7 +18,11 @@ export interface Rule {
   paths?: string[];
   events?: RuleEvents;
   skills?: string[];
+  /** `before` (the default) pauses a change to a matching file until the rule loads. `after` lets the change run first. */
+  timing?: RuleTiming;
 }
+
+export type RuleTiming = "before" | "after";
 
 export interface RuleDiagnostic {
   sourceLabel: string;

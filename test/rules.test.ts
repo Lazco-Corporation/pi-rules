@@ -858,3 +858,37 @@ test("a rule that changes after the tool call loads in its newest version", asyn
     assert.equal(fake.sent.length, 1);
   });
 });
+
+test("timing: after loads the rule after an edit or a write instead of pausing it", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/style.md", "---\npaths: src/**\ntiming: after\n---\nStyle rule");
+    await writeRule(cwd, ".pi/rules/strict.md", "---\npaths: lib/**\n---\nStrict rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+    assert.equal(await fake.emit("tool_call", toolCall("edit", "src/a.ts"), { cwd }), undefined);
+    assert.equal(await fake.emit("tool_call", toolCall("write", "src/b.ts"), { cwd }), undefined);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.deepEqual(fake.sent[0].message.details.targets, { ".pi/rules/style.md": ["src/a.ts", "src/b.ts"] });
+
+    assert.equal((await fake.emit("tool_call", toolCall("edit", "lib/a.ts"), { cwd })).block, true);
+  });
+});
+
+test("an unknown timing value skips the rule with a warning", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/bad.md", "---\npaths: src/**\ntiming: later\n---\nBad rule");
+    await writeRule(cwd, ".pi/rules/good.md", "Good rule");
+    const warnings: string[] = [];
+    const ctx = { cwd, hasUI: true, ui: { notify: (message: string) => warnings.push(message) } };
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+    const injection = await fake.emit("before_agent_start", { type: "before_agent_start" }, ctx);
+    assert.match(injection.message.content, /Good rule/);
+    assert.equal(await fake.emit("tool_call", toolCall("edit", "src/a.ts"), ctx), undefined);
+    assert.equal(warnings.some((warning) => /bad\.md: timing must be before or after/.test(warning)), true);
+  });
+});

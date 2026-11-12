@@ -181,12 +181,17 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string, sco
   if (skills && "reason" in skills) {
     return { diagnostic: { sourceLabel, reason: skills.reason } };
   }
+  const timing = record.timing;
+  if (timing !== undefined && timing !== "before" && timing !== "after") {
+    return { diagnostic: { sourceLabel, reason: "timing must be before or after" } };
+  }
 
   const body = content.slice(frontmatter[0].length);
   const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashContent(content) };
   if (paths) rule.paths = paths;
   if (events) rule.events = events;
   if (skills) rule.skills = skills;
+  if (timing) rule.timing = timing;
   return { rule };
 }
 

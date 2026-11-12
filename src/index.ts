@@ -180,7 +180,7 @@ export function makeExtension() {
         if (state.rules.has(rule.id)) continue;
         if (!ruleAppliesToTarget(rule, target)) continue;
         if (!ruleMatchesToolCallEvent(rule, event.toolName)) continue;
-        if (event.toolName !== "read") shouldBlock = true;
+        if (event.toolName !== "read" && rule.timing !== "after") shouldBlock = true;
         const pending = pendingRules.get(rule.id);
         if (pending) {
           if (isScoped(rule)) pending.targets.add(label);
@@ -190,7 +190,7 @@ export function makeExtension() {
       }
       if (!shouldBlock) return;
 
-      // Reads can finish before the next model call. Edits and writes pause, because their arguments are already final.
+      // Reads and `timing: after` rules load before the next model call. Other edits and writes pause, because their arguments are already final.
       return { block: true, reason: `[pi-rules] Tool \`${event.toolName}\` paused so Pi can load matching rules. Review them, adjust the change if needed, then retry.` };
     });
 

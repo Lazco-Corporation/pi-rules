@@ -18,7 +18,7 @@ It reads the same rule files, so you can switch without a change to your rules.
 - **Claude Code compatible.** Reads `.claude/rules/` and `.agents/rules/` next to `.pi/rules/`, so one set of files serves both tools.
 - **Rules for matching files.** A rule with `paths` loads only when the agent reads, edits, or writes a matching file.
 - **User rules for any file.** A rule in your home directory also loads for files outside the project, such as `/tmp/build.sh` or `~/.zshrc`.
-- **Rule before change.** An edit or a write to a matching file waits until the agent has the rule, then the agent tries again.
+- **Rule before change.** An edit or a write to a matching file waits until the agent has the rule, then the agent tries again. Set [`timing: after`](#timing) to skip the wait for short rules.
 - **Linked skills.** A rule can load full pi [skills](#skills) when it loads.
 - **Six sources in one list.** Project and user directories merge by file name, and the first source wins. See [Rule files](#rule-files).
 
@@ -78,7 +78,7 @@ Keep tests next to the behavior they check.
 | The agent calls | What happens |
 | --- | --- |
 | `read` on a matching file | The read runs. The rule loads before the next model call. |
-| `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. |
+| `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. With [`timing: after`](#timing), the call runs, and the rule loads like a read. |
 
 Each rule loads once on the current branch of the conversation.
 pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
@@ -122,6 +122,7 @@ A file without frontmatter is a rule for every session.
 | `paths` | a glob or a list of globs | The rule loads only for matching files. |
 | `events` | `tool_call: <tool>` or a list of tools | The rule loads only for these tools: `read`, `edit`, `write`. |
 | `skills` | a skill name or a list of names | These skills load with the rule. |
+| `timing` | `before` (default) or `after` | `after` lets an edit or a write run first, and the rule loads after it. Only for a rule with `paths` or `events`. See [Timing](#timing). |
 
 Globs use `/` and match dotfiles.
 How a glob matches depends on the directory of the rule:
@@ -151,6 +152,24 @@ Check the facts in the docs against the code.
 ```
 
 This rule loads after a read of a matching file, but not for an edit or a write.
+
+### Timing
+
+By default, an `edit` or a `write` of a matching file stops until the rule loads, and the agent tries again.
+For a short style rule, the stop often changes nothing, and it costs one more model call.
+Set `timing: after` to let the change run, and load the rule before the next model call:
+
+```md
+---
+paths: "**/*.ts"
+timing: after
+---
+Use camelCase for variables.
+```
+
+If the change breaks the rule, the agent fixes it in the next step.
+Keep the default for rules that the agent must know before it changes a file, such as a rule that a file is generated.
+A rule without `paths` and `events` loads before the first model call, so `timing` has no effect on it.
 
 ### Skills
 

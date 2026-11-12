@@ -4,6 +4,14 @@ All releases of `@lazco/pi-rules` are in this file.
 The newest release is at the top.
 Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 
+## [0.10.0] - 2026-11-12
+
+### Added
+
+- The `timing` frontmatter field.
+  With `timing: after`, an edit or a write of a matching file runs at once, and the rule loads before the next model call.
+  The default, `before`, keeps the pause.
+
 ## [0.9.0] - 2026-11-12
 
 ### Added
@@ -48,6 +56,7 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 - Commit nudges and the `nudges` field in `rules.json`.
 - The `pi-rules:config` event and the `emitPiRulesConfig` export.
 
+[0.10.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Lazco-Corporation/pi-rules/releases/tag/v0.7.0
