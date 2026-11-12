@@ -1,0 +1,29 @@
+test/rules.test.ts
+  s_7fc6bd9345386e::t_47000491b780ad 921-931
+src/bash.ts
+  s_7fc6bd9345386e::t_83c159f00c52b3 14,17-31,35,37,40-48,50,52,54-55,63-66,71,73,75-113,116,119,127-135,137,139,141,143-144,147,149-150,152,156-159,162-167,169-174,176,178,181-185,188-200,203-209,212-217,219,223,261-266
+  s_7fc6bd9345386e::t_1e3126488ea619 254
+src/index.ts
+  s_7fc6bd9345386e::t_d80fce5e10060f 185,237-246,252
+test/bash.test.ts
+  s_7fc6bd9345386e::t_afc26f520118d3 49-56,74-75
+  s_7fc6bd9345386e::t_47000491b780ad 57
+README.md
+  s_7fc6bd9345386e::t_3ea541203ab29f 87-88,95-97,243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c288a26f47ea9bd2e463378b29132624ca73206d",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
