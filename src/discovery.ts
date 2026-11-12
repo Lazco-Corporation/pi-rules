@@ -5,7 +5,7 @@ import path from "node:path";
 import Type from "typebox";
 import { Compile } from "typebox/compile";
 import { parseDocument } from "yaml";
-import type { DiscoveryResult, Rule, RuleDiagnostic, RuleEvents, RuleToolName } from "./types.ts";
+import type { DiscoveryResult, Rule, RuleDiagnostic, RuleEvents, RuleScope, RuleToolName } from "./types.ts";
 
 const FRONTMATTER_RE = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const RULE_TOOL_NAMES = new Set<RuleToolName>(["read", "edit", "write"]);
@@ -36,6 +36,7 @@ export const DEFAULT_RULE_SOURCES: RuleSource[] = [
 interface RuleRoot {
   directory: string;
   label: string;
+  scope: RuleScope;
 }
 
 interface DiscoveryOptions {
@@ -96,7 +97,9 @@ export async function loadRuleConfig(cwd: string, options: DiscoveryOptions = {}
 export async function discoverRules(cwd: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
   const home = options.home ?? os.homedir();
   const env = options.env ?? process.env;
-  const roots = (options.sources ?? DEFAULT_RULE_SOURCES).map((source) => resolveRuleRoot(source, cwd, env, home));
+  const roots = await withoutUserAliases(
+    (options.sources ?? DEFAULT_RULE_SOURCES).map((source) => resolveRuleRoot(source, cwd, env, home)),
+  );
 
   const rules: Rule[] = [];
   const diagnostics: RuleDiagnostic[] = [];
@@ -111,7 +114,7 @@ export async function discoverRules(cwd: string, options: DiscoveryOptions = {})
 
       const sourcePath = path.join(root.directory, ...relativePath.split("/"));
       const sourceLabel = `${root.label}/${relativePath}`;
-      const parsed = await parseRuleFile(sourcePath, sourceLabel);
+      const parsed = await parseRuleFile(sourcePath, sourceLabel, root.scope);
       if ("rule" in parsed) {
         rules.push(parsed.rule);
       } else {
@@ -123,7 +126,7 @@ export async function discoverRules(cwd: string, options: DiscoveryOptions = {})
   return { rules, diagnostics };
 }
 
-export async function parseRuleFile(sourcePath: string, sourceLabel: string): Promise<ParseResult> {
+export async function parseRuleFile(sourcePath: string, sourceLabel: string, scope: RuleScope): Promise<ParseResult> {
   let content: string;
   try {
     content = await readFile(sourcePath, "utf8");
@@ -138,7 +141,7 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string): Pr
       return { diagnostic: { sourceLabel, reason: "unclosed frontmatter" } };
     }
     const body = content.replace(/^\uFEFF/, "");
-    return { rule: { id: sourcePath, sourcePath, sourceLabel, body, hash: hashBody(body) } };
+    return { rule: { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashBody(body) } };
   }
 
   let raw: unknown;
@@ -180,7 +183,7 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string): Pr
   }
 
   const body = content.slice(frontmatter[0].length);
-  const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, body, hash: hashBody(body) };
+  const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashBody(body) };
   if (paths) rule.paths = paths;
   if (events) rule.events = events;
   if (skills) rule.skills = skills;
@@ -234,19 +237,39 @@ function resolvePiCodingAgentDirectory(env: NodeJS.ProcessEnv, home: string): st
 
 function resolveRuleRoot(source: RuleSource, cwd: string, env: NodeJS.ProcessEnv, home: string): RuleRoot {
   if (source.scope === "repo") {
-    return { directory: path.join(cwd, `.${source.kind}`, "rules"), label: `.${source.kind}/rules` };
+    return { directory: path.join(cwd, `.${source.kind}`, "rules"), label: `.${source.kind}/rules`, scope: "repo" };
   }
 
   if (source.kind === "pi") {
     const directory = path.join(resolvePiCodingAgentDirectory(env, home), "rules");
-    return { directory, label: labelDirectory(directory, home) };
+    return { directory, label: labelDirectory(directory, home), scope: "user" };
   }
   if (source.kind === "agents") {
-    return { directory: path.join(home, ".agents", "rules"), label: "~/.agents/rules" };
+    return { directory: path.join(home, ".agents", "rules"), label: "~/.agents/rules", scope: "user" };
   }
 
   const directory = path.join(env.CLAUDE_CONFIG_DIR || path.join(home, ".claude"), "rules");
-  return { directory, label: labelDirectory(directory, home) };
+  return { directory, label: labelDirectory(directory, home), scope: "user" };
+}
+
+/**
+ * Drop a project root that is a user root, such as `.agents/rules` when pi starts in the home directory.
+ * Its rules then load once, from the user root, with user scope.
+ */
+async function withoutUserAliases(roots: RuleRoot[]): Promise<RuleRoot[]> {
+  const realDirectories = await Promise.all(roots.map((root) => realDirectory(root.directory)));
+  const userDirectories = new Set(
+    roots.flatMap((root, index) => (root.scope === "user" ? [realDirectories[index]] : [])),
+  );
+  return roots.filter((root, index) => root.scope === "user" || !userDirectories.has(realDirectories[index]));
+}
+
+async function realDirectory(directory: string): Promise<string> {
+  try {
+    return await realpath(directory);
+  } catch {
+    return path.resolve(directory);
+  }
 }
 
 function invalidConfig(configPath: string, sourceLabel: string, reason: string): RuleConfigResult {

@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Rule } from "../src/types.ts";
 import { discoverRules, loadRuleConfig, parseRuleFile } from "../src/discovery.ts";
 import extension, { CUSTOM_MESSAGE_TYPE } from "../src/index.ts";
-import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "../src/matching.ts";
+import { extractTarget, resolveTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent } from "../src/matching.ts";
 import { createFakePi, FakeSession, type Loose } from "./fake-pi.ts";
 
 // Keep the developer's own rules out of every test: discovery reads the home directory.
@@ -29,19 +29,6 @@ async function writeRule(cwd: string, relativePath: string, content: string): Pr
   const target = path.join(cwd, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, content, "utf8");
-}
-
-function toolResult(toolName: string, filePath: string, overrides: Record<string, unknown> = {}): Loose {
-  return {
-    type: "tool_result",
-    toolName,
-    toolCallId: `${toolName}-1`,
-    input: { path: filePath },
-    content: [{ type: "text", text: "original output" }],
-    details: { untouched: true },
-    isError: false,
-    ...overrides,
-  };
 }
 
 function toolCall(toolName: string, filePath: string, overrides: Record<string, unknown> = {}): Loose {
@@ -231,11 +218,11 @@ test("accepts path, event, and skill filters while diagnosing malformed frontmat
     await writeFile(unsupportedEvent, "---\nevents:\n  tool_result: read\n---\nBad event", "utf8");
     await writeFile(unsupportedTool, "---\nevents:\n  tool_call: bash\n---\nBad tool", "utf8");
 
-    const validResult: Loose = await parseRuleFile(valid, "valid.md");
-    const extraResult: Loose = await parseRuleFile(extra, "extra.md");
-    const malformedResult: Loose = await parseRuleFile(malformed, "malformed.md");
-    const eventResult: Loose = await parseRuleFile(unsupportedEvent, "unsupported-event.md");
-    const toolResult: Loose = await parseRuleFile(unsupportedTool, "unsupported-tool.md");
+    const validResult: Loose = await parseRuleFile(valid, "valid.md", "repo");
+    const extraResult: Loose = await parseRuleFile(extra, "extra.md", "repo");
+    const malformedResult: Loose = await parseRuleFile(malformed, "malformed.md", "repo");
+    const eventResult: Loose = await parseRuleFile(unsupportedEvent, "unsupported-event.md", "repo");
+    const toolResult: Loose = await parseRuleFile(unsupportedTool, "unsupported-tool.md", "repo");
 
     assert.deepEqual(validResult.rule.paths, ["src/**/*.ts", "tests/**"]);
     assert.deepEqual(validResult.rule.events, { tool_call: ["edit", "write"] });
@@ -268,13 +255,17 @@ test("warns and skips non-string paths without blocking valid sibling rules", as
   });
 });
 
-test("extracts project-local read/edit/write targets before execution", () => {
-  const cwd = path.resolve("/workspace/project");
-  assert.equal(extractTarget(toolCall("read", "@src/a.ts"), cwd), "src/a.ts");
-  assert.equal(extractTarget(toolCall("edit", "/workspace/project/src/a.ts"), cwd), "src/a.ts");
-  assert.equal(extractTarget(toolCall("write", "../outside.ts"), cwd), undefined);
-  assert.equal(extractTarget(toolCall("bash", "src/a.ts"), cwd), undefined);
-  assert.equal(extractTarget(toolResult("read", "src/a.ts", { isError: true }), cwd), undefined);
+test("extracts read/edit/write targets inside and outside the working directory", () => {
+  const cwd = "/workspace/project";
+  const home = "/home/me";
+  assert.deepEqual(extractTarget(toolCall("read", "@src/a.ts"), cwd, home), {
+    absolutePath: "/workspace/project/src/a.ts",
+    relativePath: "src/a.ts",
+  });
+  assert.deepEqual(extractTarget(toolCall("edit", "/workspace/project/src/a.ts"), cwd, home)?.relativePath, "src/a.ts");
+  assert.deepEqual(extractTarget(toolCall("write", "../outside.ts"), cwd, home), { absolutePath: "/workspace/outside.ts" });
+  assert.deepEqual(extractTarget(toolCall("read", "~/.zshrc"), cwd, home), { absolutePath: "/home/me/.zshrc" });
+  assert.equal(extractTarget(toolCall("bash", "src/a.ts"), cwd, home), undefined);
 });
 
 test("matches Claude-style paths and optional Pi tool_call filters", () => {
@@ -282,14 +273,16 @@ test("matches Claude-style paths and optional Pi tool_call filters", () => {
     id: "rule",
     sourcePath: "/workspace/.agents/rules/typescript.md",
     sourceLabel: ".agents/rules/typescript.md",
+    scope: "repo",
     body: "Typed",
     hash: "hash",
     paths: ["./src/**/*.{ts,tsx}", ".github/**"],
     events: { tool_call: ["edit", "write"] },
   };
-  assert.equal(ruleMatchesTarget(rule, "src/app.tsx"), true);
-  assert.equal(ruleMatchesTarget(rule, ".github/workflows/ci.yml"), true);
-  assert.equal(ruleMatchesTarget(rule, "README.md"), false);
+  const cwd = "/workspace";
+  assert.equal(ruleAppliesToTarget(rule, resolveTarget("src/app.tsx", cwd)), true);
+  assert.equal(ruleAppliesToTarget(rule, resolveTarget(".github/workflows/ci.yml", cwd)), true);
+  assert.equal(ruleAppliesToTarget(rule, resolveTarget("README.md", cwd)), false);
   assert.equal(ruleMatchesToolCallEvent(rule, "read"), false);
   assert.equal(ruleMatchesToolCallEvent(rule, "edit"), true);
   assert.equal(ruleMatchesToolCallEvent({ ...rule, events: undefined }, "read"), true);
@@ -723,5 +716,76 @@ test("a turn after a compaction gets the unconditional rules once", async () => 
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
     assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
     assert.equal(fake.sent.length, 1);
+  });
+});
+
+function userRule(paths: string[] | undefined, overrides: Partial<Rule> = {}): Rule {
+  return {
+    id: "user",
+    sourcePath: "/home/me/.agents/rules/user.md",
+    sourceLabel: "~/.agents/rules/user.md",
+    scope: "user",
+    body: "User",
+    hash: "hash",
+    ...(paths ? { paths } : {}),
+    ...overrides,
+  };
+}
+
+test("user rules match files outside the working directory", () => {
+  const cwd = "/home/me/Projects/A";
+  const home = "/home/me";
+  const at = (file: string) => resolveTarget(file, cwd, home);
+  const applies = (rule: Rule, file: string) => ruleAppliesToTarget(rule, at(file), home);
+
+  assert.equal(applies(userRule(["**/*.sh"]), "/tmp/x.sh"), true);
+  assert.equal(applies(userRule(["**/.zshrc"]), "~/.zshrc"), true);
+  assert.equal(applies(userRule(["**/*.sh"]), "scripts/build.sh"), true);
+  assert.equal(applies(userRule(["/home/me/Projects/PickTrip/**"]), "/home/me/Projects/PickTrip/app/main.swift"), true);
+  assert.equal(applies(userRule(["/home/me/Projects/PickTrip/**"]), "src/main.swift"), false);
+  assert.equal(applies(userRule(["~/.kube/*.yml"]), "/home/me/.kube/zeabur-config.yml"), true);
+  assert.equal(applies(userRule(["src/**"]), "src/a.ts"), true);
+  assert.equal(applies(userRule(["src/**"]), "/elsewhere/src/a.ts"), false);
+  assert.equal(applies(userRule(undefined, { events: { tool_call: ["read"] } }), "/tmp/notes.md"), true);
+});
+
+test("project rules do not apply outside the working directory", () => {
+  const cwd = "/home/me/Projects/A";
+  const repoRule: Rule = { ...userRule(["**/*.sh"]), scope: "repo" };
+  assert.equal(ruleAppliesToTarget(repoRule, resolveTarget("scripts/a.sh", cwd)), true);
+  assert.equal(ruleAppliesToTarget(repoRule, resolveTarget("/tmp/x.sh", cwd)), false);
+  assert.equal(ruleAppliesToTarget({ ...repoRule, paths: undefined }, resolveTarget("/tmp/x.sh", cwd)), false);
+});
+
+test("a user rule loads for a file outside the working directory", async () => {
+  await withTempDirectory(async (root) => {
+    const cwd = path.join(root, "project");
+    await mkdir(cwd, { recursive: true });
+    await writeRule(isolatedHome, ".agents/rules/shellscript.md", "---\npaths: \"**/*.sh\"\n---\nShell rule");
+    try {
+      const fake = createFakePi();
+      extension(fake.api);
+      await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+      const outside = path.join(root, "elsewhere", "x.sh");
+      assert.equal((await fake.emit("tool_call", toolCall("edit", outside), { cwd })).block, true);
+      await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+      assert.deepEqual(fake.sent[0].message.details.targets, { "~/.agents/rules/shellscript.md": [outside] });
+    } finally {
+      await rm(path.join(isolatedHome, ".agents"), { recursive: true, force: true });
+    }
+  });
+});
+
+test("rules in the home directory keep user scope when pi starts there", async () => {
+  await withTempDirectory(async (home) => {
+    await writeRule(home, ".agents/rules/base.md", "Base rule");
+    await writeRule(home, ".agents/rules/shellscript.md", "---\npaths: \"**/*.sh\"\n---\nShell rule");
+
+    const result: Loose = await discoverRules(home, { home, env: {} });
+
+    assert.deepEqual(
+      result.rules.map((rule: Rule) => [rule.sourceLabel, rule.scope]),
+      [["~/.agents/rules/base.md", "user"], ["~/.agents/rules/shellscript.md", "user"]],
+    );
   });
 });

@@ -4,6 +4,17 @@ All releases of `@lazco/pi-rules` are in this file.
 The newest release is at the top.
 Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 
+## [0.8.0] - 2026-11-12
+
+### Added
+
+- A user rule now loads for a file outside the project, such as `/tmp/build.sh` or `~/.zshrc`.
+  In a user rule, a glob that starts with `/` is an absolute path, and a glob that starts with `~/` starts at the home directory.
+
+### Fixed
+
+- When you start pi in the home directory, the rules in `~/.agents/rules/` count as user rules, not project rules.
+
 ## [0.7.0] - 2026-11-12
 
 ### Changed
@@ -24,4 +35,5 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 - Commit nudges and the `nudges` field in `rules.json`.
 - The `pi-rules:config` event and the `emitPiRulesConfig` export.
 
+[0.8.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Lazco-Corporation/pi-rules/releases/tag/v0.7.0
