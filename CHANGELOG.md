@@ -12,6 +12,7 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
   pi-rules finds redirections, `tee`, `touch`, `sed -i`, `perl -i`, and the destination of `cp`, `mv`, and `install`, and it follows `cd` in the same command.
   With the default `timing: before`, the command stops until the rule loads. With `timing: after`, it runs first.
 - A `bash` command that names an existing matching file loads the rule like a `read`.
+- A `bash` change matches a rule whose `events` list `edit` or `write`.
 
 ## [0.10.0] - 2026-11-12
 
