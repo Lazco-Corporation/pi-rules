@@ -1,0 +1,21 @@
+src/bash.ts
+  s_7fc6bd9345386e::t_14468edefa2b24 198-199,201-203,211-212
+test/bash.test.ts
+  s_7fc6bd9345386e::t_14468edefa2b24 80-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f3979948364a14f11792263bab0b9407fecfc032",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
