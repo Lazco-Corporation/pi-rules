@@ -678,10 +678,11 @@ test("a queued injection that pi has not written yet is not sent twice", async (
     const fake = createFakePi();
     extension(fake.api);
     await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    const [base] = (await discoverRules(cwd)).rules;
     const queued = {
       role: "custom",
       customType: CUSTOM_MESSAGE_TYPE,
-      details: { injectionId: "queued", rules: [{ id: path.join(cwd, ".pi/rules/base.md"), hash: "any" }], sources: [], targets: {}, skills: [] },
+      details: { injectionId: "queued", rules: [{ id: base!.id, hash: base!.hash, label: base!.sourceLabel }], sources: [base!.sourceLabel], targets: {}, skills: [] },
     };
 
     await fake.emit("turn_end", { type: "turn_end", pendingMessages: [queued] }, { cwd });
@@ -792,5 +793,68 @@ test("rules in the home directory keep user scope when pi starts there", async (
       result.rules.map((rule: Rule) => [rule.sourceLabel, rule.scope]),
       [["~/.agents/rules/base.md", "user"], ["~/.agents/rules/shellscript.md", "user"]],
     );
+  });
+});
+
+test("a changed rule loads again once, marked as updated", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base v1");
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v1");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    await fake.emit("tool_call", toolCall("read", "src/a.ts"), { cwd });
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(fake.sent.length, 1);
+
+    await writeRule(cwd, ".pi/rules/base.md", "Base v2");
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v2");
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    const update = fake.sent[1].message;
+    assert.match(update.content, /## Rule: \.pi\/rules\/base\.md \(updated\)[\s\S]*Base v2/);
+    assert.match(update.content, /## Rule: \.pi\/rules\/scoped\.md \(updated\)[\s\S]*Scoped v2/);
+    assert.deepEqual(update.details.updated, [".pi/rules/base.md", ".pi/rules/scoped.md"]);
+
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+    assert.equal(fake.sent.length, 2);
+  });
+});
+
+test("a deleted rule gets one notice that it no longer applies", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    await writeRule(cwd, ".pi/rules/gone.md", "Gone rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+
+    await rm(path.join(cwd, ".pi/rules/gone.md"));
+    const notice = await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.match(notice.message.content, /## Rule removed: \.pi\/rules\/gone\.md/);
+    assert.deepEqual(notice.message.details.removed.map((rule: Loose) => rule.label), [".pi/rules/gone.md"]);
+    assert.deepEqual(notice.message.details.rules, []);
+
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+    await writeRule(cwd, ".pi/rules/gone.md", "Gone rule is back");
+    assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Gone rule is back/);
+  });
+});
+
+test("a rule that changes after the tool call loads in its newest version", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v1");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("tool_call", toolCall("read", "src/a.ts"), { cwd });
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v2");
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.match(fake.sent[0].message.content, /Scoped v2/);
+    assert.equal(fake.sent.length, 1);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(fake.sent.length, 1);
   });
 });

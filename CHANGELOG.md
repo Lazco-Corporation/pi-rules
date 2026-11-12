@@ -4,6 +4,19 @@ All releases of `@lazco/pi-rules` are in this file.
 The newest release is at the top.
 Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 
+## [0.9.0] - 2026-11-12
+
+### Added
+
+- When you change a rule file that already loaded, the new version loads before the next model call, marked `(updated)`.
+  Before, the model kept the old version until the next compaction.
+- When you delete a rule file that already loaded, the model gets a short notice that the rule no longer applies.
+
+### Changed
+
+- A change to the frontmatter of a rule also counts as a change.
+  In a session from 0.7.0 or 0.8.0, each rule loads once more, marked `(updated)`.
+
 ## [0.8.0] - 2026-11-12
 
 ### Added
@@ -35,5 +48,6 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 - Commit nudges and the `nudges` field in `rules.json`.
 - The `pi-rules:config` event and the `emitPiRulesConfig` export.
 
+[0.9.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Lazco-Corporation/pi-rules/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Lazco-Corporation/pi-rules/releases/tag/v0.7.0

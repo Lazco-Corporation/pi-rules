@@ -141,7 +141,7 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string, sco
       return { diagnostic: { sourceLabel, reason: "unclosed frontmatter" } };
     }
     const body = content.replace(/^\uFEFF/, "");
-    return { rule: { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashBody(body) } };
+    return { rule: { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashContent(content) } };
   }
 
   let raw: unknown;
@@ -183,7 +183,7 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string, sco
   }
 
   const body = content.slice(frontmatter[0].length);
-  const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashBody(body) };
+  const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, scope, body, hash: hashContent(content) };
   if (paths) rule.paths = paths;
   if (events) rule.events = events;
   if (skills) rule.skills = skills;
@@ -329,8 +329,8 @@ function labelDirectory(directory: string, home: string): string {
   return directory.split(path.sep).join("/");
 }
 
-function hashBody(body: string): string {
-  return createHash("sha256").update(body).digest("hex").slice(0, 16);
+function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 
 function getErrorCode(error: unknown): string {

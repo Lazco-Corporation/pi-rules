@@ -13,7 +13,7 @@ export interface Rule {
   sourceLabel: string;
   scope: RuleScope;
   body: string;
-  /** Hash of the body, so a changed rule file can be told apart from the copy the model already has. */
+  /** Hash of the whole file, so a changed rule can be told apart from the version that the model has. */
   hash: string;
   paths?: string[];
   events?: RuleEvents;
@@ -33,14 +33,29 @@ export interface DiscoveryResult {
 export interface InjectedRule {
   id: string;
   hash: string;
+  label: string;
+}
+
+export interface RemovedRule {
+  id: string;
+  label: string;
 }
 
 export interface RuleInjectionDetails {
   injectionId: string;
+  /** Rules that this message loads, also new versions of rules that the model has. */
   rules: InjectedRule[];
+  /** Rules whose file is gone. The message tells the model to stop following them. */
+  removed: RemovedRule[];
   sources: string[];
+  /** The labels in `sources` that replace an earlier version. */
+  updated: string[];
   targets: Record<string, string[]>;
   skills: string[];
+}
+
+export interface DueRule extends PendingRule {
+  updated: boolean;
 }
 
 export interface PendingRule {
