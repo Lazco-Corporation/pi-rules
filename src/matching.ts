@@ -60,8 +60,11 @@ function patternMatches(pattern: string, rule: Rule, target: ToolTarget, home: s
   const normalized = toPosixPath(pattern).replace(/^\.\//, "");
   if (rule.scope === "repo") return isMatch(target.relativePath ?? "", normalized);
   if (normalized.startsWith("/")) return isMatch(target.absolutePath, normalized);
-  if (normalized === "~" || normalized.startsWith("~/")) {
-    return isMatch(target.absolutePath, `${toPosixPath(home)}${normalized.slice(1)}`);
+  if (normalized.startsWith("~/")) {
+    // Compare in `~/` form, so glob characters in the home path cannot change the pattern.
+    const homePrefix = `${toPosixPath(home)}/`;
+    if (!target.absolutePath.startsWith(homePrefix)) return false;
+    return isMatch(`~/${target.absolutePath.slice(homePrefix.length)}`, normalized);
   }
   if (target.relativePath !== undefined && isMatch(target.relativePath, normalized)) return true;
   return isMatch(target.absolutePath.replace(/^\//, ""), normalized);

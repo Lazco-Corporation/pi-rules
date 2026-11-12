@@ -744,6 +744,11 @@ test("user rules match files outside the working directory", () => {
   assert.equal(applies(userRule(["/home/me/Projects/PickTrip/**"]), "/home/me/Projects/PickTrip/app/main.swift"), true);
   assert.equal(applies(userRule(["/home/me/Projects/PickTrip/**"]), "src/main.swift"), false);
   assert.equal(applies(userRule(["~/.kube/*.yml"]), "/home/me/.kube/zeabur-config.yml"), true);
+  const bracketHome = "/home/[me]";
+  assert.equal(
+    ruleAppliesToTarget(userRule(["~/.kube/*.yml"]), resolveTarget("/home/[me]/.kube/a.yml", cwd, bracketHome), bracketHome),
+    true,
+  );
   assert.equal(applies(userRule(["src/**"]), "src/a.ts"), true);
   assert.equal(applies(userRule(["src/**"]), "/elsewhere/src/a.ts"), false);
   assert.equal(applies(userRule(undefined, { events: { tool_call: ["read"] } }), "/tmp/notes.md"), true);
