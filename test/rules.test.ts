@@ -858,3 +858,29 @@ test("a rule that changes after the tool call loads in its newest version", asyn
     assert.equal(fake.sent.length, 1);
   });
 });
+
+test("timing: after loads the rule after an edit or a write instead of pausing it", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/style.md", "---\npaths: src/**\ntiming: after\n---\nStyle rule");
+    await writeRule(cwd, ".pi/rules/strict.md", "---\npaths: lib/**\n---\nStrict rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+    assert.equal(await fake.emit("tool_call", toolCall("edit", "src/a.ts"), { cwd }), undefined);
+    assert.equal(await fake.emit("tool_call", toolCall("write", "src/b.ts"), { cwd }), undefined);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.deepEqual(fake.sent[0].message.details.targets, { ".pi/rules/style.md": ["src/a.ts", "src/b.ts"] });
+
+    assert.equal((await fake.emit("tool_call", toolCall("edit", "lib/a.ts"), { cwd })).block, true);
+  });
+});
+
+test("an unknown timing value skips the rule with a warning", async () => {
+  await withTempDirectory(async (cwd) => {
+    const file = path.join(cwd, "bad.md");
+    await writeFile(file, "---\ntiming: later\n---\nBad", "utf8");
+    const result: Loose = await parseRuleFile(file, "bad.md", "repo");
+    assert.equal(result.diagnostic.reason, "timing must be before or after");
+  });
+});
