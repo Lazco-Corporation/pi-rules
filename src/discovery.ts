@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -136,14 +137,8 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string): Pr
     if (/^\uFEFF?---(?:\r?\n|$)/.test(content)) {
       return { diagnostic: { sourceLabel, reason: "unclosed frontmatter" } };
     }
-    return {
-      rule: {
-        id: sourcePath,
-        sourcePath,
-        sourceLabel,
-        body: content.replace(/^\uFEFF/, ""),
-      },
-    };
+    const body = content.replace(/^\uFEFF/, "");
+    return { rule: { id: sourcePath, sourcePath, sourceLabel, body, hash: hashBody(body) } };
   }
 
   let raw: unknown;
@@ -184,12 +179,8 @@ export async function parseRuleFile(sourcePath: string, sourceLabel: string): Pr
     return { diagnostic: { sourceLabel, reason: skills.reason } };
   }
 
-  const rule: Rule = {
-    id: sourcePath,
-    sourcePath,
-    sourceLabel,
-    body: content.slice(frontmatter[0].length),
-  };
+  const body = content.slice(frontmatter[0].length);
+  const rule: Rule = { id: sourcePath, sourcePath, sourceLabel, body, hash: hashBody(body) };
   if (paths) rule.paths = paths;
   if (events) rule.events = events;
   if (skills) rule.skills = skills;
@@ -313,6 +304,10 @@ function labelDirectory(directory: string, home: string): string {
     return `~/${relative.split(path.sep).join("/")}`;
   }
   return directory.split(path.sep).join("/");
+}
+
+function hashBody(body: string): string {
+  return createHash("sha256").update(body).digest("hex").slice(0, 16);
 }
 
 function getErrorCode(error: unknown): string {

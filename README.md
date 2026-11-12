@@ -79,8 +79,12 @@ Keep tests next to the behavior they check.
 | `read` on a matching file | The read runs. The rule loads before the next model call. |
 | `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. |
 
-Each rule loads once.
-After a compaction, the rules load again when they are needed.
+Each rule loads once on the current branch of the conversation.
+pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
+
+- go back to an earlier message with `/tree`, or send a message again after you stop an answer,
+- resume a session, run `/reload`, or fork a session,
+- compact the session. The rules that the summary replaced load again when they are needed.
 
 ## Rule files
 
@@ -186,8 +190,6 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 
 - **Files outside the project.** A `read`, `edit`, or `write` of a file outside `<project>` does not load a rule, also a user rule.
 - **Shell commands.** A file that a `bash` command changes does not load a rule.
-- **Branches.** After you go back to an earlier message with `/tree`, the new branch can miss rules that loaded on the old branch.
-- **Resume.** After a resume or `/reload`, rules that are already in the session can load again.
 - **Changed rules.** A rule that already loaded does not load again after you change its file, until the next compaction.
 
 ## Contributing

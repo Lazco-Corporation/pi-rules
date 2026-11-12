@@ -9,6 +9,8 @@ export interface Rule {
   sourcePath: string;
   sourceLabel: string;
   body: string;
+  /** Hash of the body, so a changed rule file can be told apart from the copy the model already has. */
+  hash: string;
   paths?: string[];
   events?: RuleEvents;
   skills?: string[];
@@ -24,10 +26,17 @@ export interface DiscoveryResult {
   diagnostics: RuleDiagnostic[];
 }
 
+export interface InjectedRule {
+  id: string;
+  hash: string;
+}
+
 export interface RuleInjectionDetails {
+  injectionId: string;
+  rules: InjectedRule[];
   sources: string[];
   targets: Record<string, string[]>;
-  skills?: string[];
+  skills: string[];
 }
 
 export interface PendingRule {

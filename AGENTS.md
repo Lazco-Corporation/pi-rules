@@ -23,6 +23,7 @@ All source sits under `src/`.
 | File | What it holds |
 |---|---|
 | `index.ts` | the pi event handlers, the injection message, and its renderer |
+| `state.ts` | which rules and skills the model sees now, read from the injection messages on the current branch |
 | `discovery.ts` | `rules.json`, the rule sources, and the rule file parser |
 | `matching.ts` | the tool call target and the glob match |
 | `types.ts` | the shared types |
@@ -47,10 +48,18 @@ Read `docs/packages.md` in the installed `@earendil-works/pi-coding-agent` befor
 - A package that pi supplies goes in `peerDependencies` with a `"*"` range. Never bundle one.
 - Any other runtime dependency goes in `dependencies`.
 
+## Injection state
+
+The session is the only record of what the model has.
+Each injection message stores the id and the body hash of each rule in `details.rules`.
+`state.ts` reads them from the compaction-aware projection of the current branch.
+Never keep a set of injected rules in memory: it goes wrong after `/tree`, a resume, a fork, or a reload.
+The only in-memory records are the matches of the current turn and the injections that `pi.sendMessage` queued but pi has not written yet.
+
 ## Tests
 
 The tests set `HOME` to an empty directory, so the rules of the developer do not leak into them.
-Drive the extension through the fake pi in `test/`.
+Drive the extension through `test/fake-pi.ts`. It persists what the handlers return, as pi does, and supports branches, compactions, and context edits.
 Do not call a real model in a unit test.
 
 ## Release
