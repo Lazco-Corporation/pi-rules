@@ -1,0 +1,21 @@
+README.md
+  s_7fc6bd9345386e::t_5be56b1e1da443 81,125,172
+test/rules.test.ts
+  s_7fc6bd9345386e::t_a865302c899b20 881-892
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0eb0539b29d64f0ef162e68470f6884de8cf9bce",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
