@@ -1,0 +1,33 @@
+src/types.ts
+  s_7fc6bd9345386e::t_81ea11d262bde4 3-5,14
+src/index.ts
+  s_7fc6bd9345386e::t_ad8aa0662ab2aa 11,148,152,157,159
+src/discovery.ts
+  s_7fc6bd9345386e::t_81ea11d262bde4 8,39,100-102,117,129,144,186,240,245,248,252-272
+test/rules.test.ts
+  s_7fc6bd9345386e::t_c99792be5af475 9,221-225,258-268,276,282-285,721-791
+src/matching.ts
+  s_7fc6bd9345386e::t_71033187a93880 1,4,9-18,22-27,29-36,39-52,59-71
+AGENTS.md
+  s_7fc6bd9345386e::t_a64f7f0149c6e8 28
+CHANGELOG.md
+  s_7fc6bd9345386e::t_1ff5556f2d8bd3 7-17,38
+README.md
+  s_7fc6bd9345386e::t_1ba29e688a5bb9 20,123-135,204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d74516e6cbee8b8370375433237a5c76052af4cf",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
