@@ -75,7 +75,8 @@ function isInjectionDetails(details: unknown): details is StoredInjectionDetails
     typeof candidate.injectionId === "string" &&
     Array.isArray(candidate.rules) &&
     candidate.rules.every((rule) => typeof rule?.id === "string" && typeof rule.hash === "string") &&
-    (candidate.removed === undefined || Array.isArray(candidate.removed)) &&
+    (candidate.removed === undefined ||
+      (Array.isArray(candidate.removed) && candidate.removed.every((rule) => typeof rule?.id === "string"))) &&
     Array.isArray(candidate.sources) &&
     Array.isArray(candidate.skills)
   );

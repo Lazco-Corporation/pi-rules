@@ -58,7 +58,8 @@ export function makeExtension() {
       const targetLines = details?.sources
         .map((source) => {
           const targets = details.targets[source] ?? [];
-          return targets.length > 0 ? `${source} → ${targets.join(", ")}` : `${source} → unconditional`;
+          if (targets.length > 0) return `${source} → ${targets.join(", ")}`;
+          return `${source} → ${updated.has(source) ? "updated" : "unconditional"}`;
         })
         .join("\n");
       const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content, null, 2);
@@ -106,9 +107,13 @@ export function makeExtension() {
      * every rule whose file changed after the model got it, and every rule whose file is gone.
      */
     const takeDueRules = (state: InjectedState): { due: DueRule[]; removed: RemovedRule[] } => {
-      const due: DueRule[] = [...pendingRules.values()]
-        .filter((entry) => !state.rules.has(entry.rule.id))
-        .map((entry) => ({ ...entry, updated: false }));
+      // A rule file can change between the tool call and the end of the turn, so take the newest version.
+      const current = new Map(rules.map((rule) => [rule.id, rule]));
+      const due: DueRule[] = [];
+      for (const entry of pendingRules.values()) {
+        const rule = current.get(entry.rule.id);
+        if (rule && !state.rules.has(rule.id)) due.push({ rule, targets: entry.targets, updated: false });
+      }
       pendingRules.clear();
       for (const rule of rules) {
         if (due.some((entry) => entry.rule.id === rule.id)) continue;

@@ -12,6 +12,11 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
   Before, the model kept the old version until the next compaction.
 - When you delete a rule file that already loaded, the model gets a short notice that the rule no longer applies.
 
+### Changed
+
+- A change to the frontmatter of a rule also counts as a change.
+  In a session from 0.7.0 or 0.8.0, each rule loads once more, marked `(updated)`.
+
 ## [0.8.0] - 2026-11-12
 
 ### Added

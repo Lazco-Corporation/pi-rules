@@ -87,7 +87,7 @@ pi-rules reads the injected rules from the messages that the model sees, so it s
 - resume a session, run `/reload`, or fork a session,
 - compact the session. The rules that the summary replaced load again when they are needed.
 
-When you change a rule file that already loaded, the new version loads before the next model call, marked `(updated)`.
+When you change a rule file that already loaded, also only its frontmatter, the new version loads before the next model call, marked `(updated)`.
 When you delete it, the model gets a short notice that the rule no longer applies.
 
 ## Rule files

@@ -13,7 +13,7 @@ export interface Rule {
   sourceLabel: string;
   scope: RuleScope;
   body: string;
-  /** Hash of the body, so a changed rule file can be told apart from the copy the model already has. */
+  /** Hash of the whole file, so a changed rule can be told apart from the version that the model has. */
   hash: string;
   paths?: string[];
   events?: RuleEvents;

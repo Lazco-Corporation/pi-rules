@@ -813,7 +813,7 @@ test("a changed rule loads again once, marked as updated", async () => {
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
     const update = fake.sent[1].message;
     assert.match(update.content, /## Rule: \.pi\/rules\/base\.md \(updated\)[\s\S]*Base v2/);
-    assert.match(update.content, /Scoped v2/);
+    assert.match(update.content, /## Rule: \.pi\/rules\/scoped\.md \(updated\)[\s\S]*Scoped v2/);
     assert.deepEqual(update.details.updated, [".pi/rules/base.md", ".pi/rules/scoped.md"]);
 
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
@@ -840,5 +840,21 @@ test("a deleted rule gets one notice that it no longer applies", async () => {
     assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
     await writeRule(cwd, ".pi/rules/gone.md", "Gone rule is back");
     assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Gone rule is back/);
+  });
+});
+
+test("a rule that changes after the tool call loads in its newest version", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v1");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("tool_call", toolCall("read", "src/a.ts"), { cwd });
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped v2");
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.match(fake.sent[0].message.content, /Scoped v2/);
+    assert.equal(fake.sent.length, 1);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(fake.sent.length, 1);
   });
 });
