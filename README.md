@@ -79,6 +79,19 @@ Keep tests next to the behavior they check.
 | --- | --- |
 | `read` on a matching file | The read runs. The rule loads before the next model call. |
 | `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. With [`timing: after`](#timing), the call runs, and the rule loads like a read. |
+| `bash` that changes a matching file | The same as `edit`. |
+| `bash` that names an existing matching file | The same as `read`. |
+
+### Shell commands
+
+pi-rules reads a `bash` command before it runs and finds the files that it changes:
+
+- redirections, such as `> file` and `>> file`,
+- `tee`, `touch`, `sed -i`, and `perl -i`,
+- the destination of `cp`, `mv`, and `install`.
+
+It follows `cd` in the same command, so `cd src && sed -i 's/a/b/' main.go` counts as a change to `src/main.go`.
+Other arguments that name an existing file count as reads.
 
 Each rule loads once on the current branch of the conversation.
 pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
@@ -224,7 +237,7 @@ pi-rules reads `rules.json` when a session starts and after a compaction.
 ## Limitations
 
 - **Project rules of other projects.** A file in another project loads only user rules, not the rules in the directories of that project.
-- **Shell commands.** A file that a `bash` command changes does not load a rule.
+- **Scripts in shell commands.** pi-rules does not read code inside a heredoc, such as `python3 - <<EOF`, or a script that a command runs. A file that such code changes loads no rule.
 
 ## Contributing
 

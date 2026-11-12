@@ -45,6 +45,7 @@
     "@earendil-works/pi-tui": "1.5.2",
     "@types/node": "^22.20.1",
     "@types/picomatch": "4.0.2",
+    "@types/shell-quote": "^1.7.5",
     "typebox": "1.4.6",
     "typescript": "^5.9.2"
   },
@@ -55,6 +56,7 @@
   },
   "dependencies": {
     "picomatch": "4.0.7",
+    "shell-quote": "1.12.0",
     "yaml": "2.9.1"
   }
 }

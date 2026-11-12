@@ -5,12 +5,14 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type Skill,
+  type ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { DEFAULT_RULE_SOURCES, discoverRules, loadRuleConfig, type RuleSource } from "./discovery.ts";
-import { extractTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent, targetLabel } from "./matching.ts";
+import { extractBashTargets } from "./bash.ts";
+import { extractTarget, ruleAppliesToTarget, ruleMatchesToolCallEvent, targetLabel, type ToolTarget } from "./matching.ts";
 import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
-import type { DueRule, PendingRule, RemovedRule, Rule, RuleInjectionDetails } from "./types.ts";
+import type { DueRule, PendingRule, RemovedRule, Rule, RuleInjectionDetails, RuleToolName } from "./types.ts";
 
 export { CUSTOM_MESSAGE_TYPE };
 
@@ -169,23 +171,25 @@ export function makeExtension() {
 
     pi.on("tool_call", async (event, ctx) => {
       if (!config.enabled) return;
-      const target = extractTarget(event, ctx.cwd);
-      if (!target) return;
+      const accesses = await fileAccesses(event, ctx.cwd);
+      if (accesses.length === 0) return;
       rules = await reloadRules(ctx.cwd);
       const state = branchState(ctx);
 
-      const label = targetLabel(target);
       let shouldBlock = false;
-      for (const rule of rules) {
-        if (state.rules.has(rule.id)) continue;
-        if (!ruleAppliesToTarget(rule, target)) continue;
-        if (!ruleMatchesToolCallEvent(rule, event.toolName)) continue;
-        if (event.toolName !== "read" && rule.timing !== "after") shouldBlock = true;
-        const pending = pendingRules.get(rule.id);
-        if (pending) {
-          if (isScoped(rule)) pending.targets.add(label);
-        } else {
-          pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [label] : []) });
+      for (const { target, access } of accesses) {
+        const label = targetLabel(target);
+        for (const rule of rules) {
+          if (state.rules.has(rule.id)) continue;
+          if (!ruleAppliesToTarget(rule, target)) continue;
+          if (!ruleMatchesToolCallEvent(rule, access)) continue;
+          if (access !== "read" && rule.timing !== "after") shouldBlock = true;
+          const pending = pendingRules.get(rule.id);
+          if (pending) {
+            if (isScoped(rule)) pending.targets.add(label);
+          } else {
+            pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [label] : []) });
+          }
         }
       }
       if (!shouldBlock) return;
@@ -228,6 +232,21 @@ export function makeExtension() {
       inFlight.clear();
     });
   };
+}
+
+/** The files that a tool call reads or changes. A `bash` write counts as `write`, and a `bash` read as `read`. */
+async function fileAccesses(event: ToolCallEvent, cwd: string): Promise<Array<{ target: ToolTarget; access: RuleToolName }>> {
+  if (event.toolName === "bash") {
+    const command = (event.input as { command?: unknown }).command;
+    if (typeof command !== "string") return [];
+    const { writes, reads } = await extractBashTargets(command, cwd);
+    return [
+      ...writes.map((target) => ({ target, access: "write" as const })),
+      ...reads.map((target) => ({ target, access: "read" as const })),
+    ];
+  }
+  const target = extractTarget(event, cwd);
+  return target ? [{ target, access: event.toolName as RuleToolName }] : [];
 }
 
 interface SkillBlock {

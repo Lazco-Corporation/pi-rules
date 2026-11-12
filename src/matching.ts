@@ -22,9 +22,10 @@ export function extractTarget(event: ToolCallEvent, cwd: string, home = os.homed
   return resolveTarget(withoutAt, cwd, home);
 }
 
-export function resolveTarget(rawPath: string, cwd: string, home = os.homedir()): ToolTarget {
+/** Resolve a path that a command names in `base`. `relativePath` is still relative to the working directory. */
+export function resolveTarget(rawPath: string, cwd: string, home = os.homedir(), base = cwd): ToolTarget {
   const expanded = rawPath === "~" || rawPath.startsWith("~/") ? path.join(home, rawPath.slice(1)) : rawPath;
-  const absolutePath = path.resolve(cwd, expanded);
+  const absolutePath = path.resolve(base, expanded);
   const relativePath = path.relative(cwd, absolutePath);
   const inside =
     relativePath.length > 0 &&
