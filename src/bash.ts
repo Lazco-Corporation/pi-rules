@@ -195,8 +195,12 @@ function inPlaceFiles(
 /** The files that `cp`, `mv`, or `install` creates: inside a target directory, or the last operand. */
 async function copyDestinations(args: string[], valueOptions: string[], directory: string, home: string): Promise<string[]> {
   const { files, values } = operands(args, valueOptions);
+  // The names that a glob source expands to are not known before the command runs.
+  const known = (sources: string[]) => sources.filter((source) => !source.includes(GLOB_MARK));
   const targetDirectory = values.get("-t") ?? values.get("--target-directory");
-  if (targetDirectory !== undefined) return files.map((source) => path.posix.join(targetDirectory, path.posix.basename(source)));
+  if (targetDirectory !== undefined) {
+    return known(files).map((source) => path.posix.join(targetDirectory, path.posix.basename(source)));
+  }
   if (files.length < 2) return [];
   const destination = files.at(-1) ?? "";
   const sources = files.slice(0, -1);
@@ -204,7 +208,8 @@ async function copyDestinations(args: string[], valueOptions: string[], director
     destination.endsWith("/") ||
     sources.length > 1 ||
     (await isDirectory(path.resolve(directory, destination.replace(/^~(?=\/|$)/, home))));
-  return intoDirectory ? sources.map((source) => path.posix.join(destination, path.posix.basename(source))) : [destination];
+  if (!intoDirectory) return [destination];
+  return known(sources).map((source) => path.posix.join(destination, path.posix.basename(source)));
 }
 
 /** Drop variable assignments and commands such as `sudo -u root`, to reach the command that runs. */

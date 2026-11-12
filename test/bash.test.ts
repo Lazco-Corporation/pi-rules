@@ -77,6 +77,8 @@ test("does not count text, file descriptors, or heredoc code as writes", async (
       "perl -Mstrict script.pl a.ts",
       "install -d build",
       "cp *.ts dir/",
+      "cp sub/*.ts dir/",
+      "mv -t dir sub/*.go",
     ];
     for (const command of commands) {
       assert.deepEqual((await targets(command, cwd, home)).writes, [], command);
