@@ -3,11 +3,11 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Rule } from "../src/types.ts";
 import { discoverRules, loadRuleConfig, parseRuleFile } from "../src/discovery.ts";
 import extension, { CUSTOM_MESSAGE_TYPE } from "../src/index.ts";
 import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "../src/matching.ts";
+import { createFakePi, FakeSession, type Loose } from "./fake-pi.ts";
 
 // Keep the developer's own rules out of every test: discovery reads the home directory.
 const isolatedHome = await mkdtemp(path.join(os.tmpdir(), "pi-rules-home-"));
@@ -15,10 +15,6 @@ process.env.HOME = isolatedHome;
 delete process.env.PI_CODING_AGENT_DIR;
 delete process.env.PI_CONFIG_DIR;
 delete process.env.CLAUDE_CONFIG_DIR;
-
-// The tests drive the handlers with partial events and read loosely shaped results.
-type Loose = any;
-type Handler = (event: Loose, ctx: Loose) => unknown;
 
 async function withTempDirectory(run: (directory: string) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pi-rules-test-"));
@@ -33,38 +29,6 @@ async function writeRule(cwd: string, relativePath: string, content: string): Pr
   const target = path.join(cwd, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, content, "utf8");
-}
-
-function createFakePi() {
-  const handlers = new Map<string, Handler[]>();
-  const renderers = new Map<string, Loose>();
-  const sent: Loose[] = [];
-  const api = {
-    on(event: string, handler: Handler) {
-      const eventHandlers = handlers.get(event) ?? [];
-      eventHandlers.push(handler);
-      handlers.set(event, eventHandlers);
-    },
-    registerMessageRenderer(customType: string, renderer: Loose) {
-      renderers.set(customType, renderer);
-    },
-    sendMessage(message: Loose, options?: Loose) {
-      sent.push({ message, options });
-    },
-  };
-  return {
-    api: api as unknown as ExtensionAPI,
-    handlers,
-    renderers,
-    sent,
-    async emit(event: string, value: Loose, ctx: Loose = {}): Promise<Loose> {
-      let result: unknown;
-      for (const handler of handlers.get(event) ?? []) {
-        result = await handler(value, ctx);
-      }
-      return result;
-    },
-  };
 }
 
 function toolResult(toolName: string, filePath: string, overrides: Record<string, unknown> = {}): Loose {
@@ -319,6 +283,7 @@ test("matches Claude-style paths and optional Pi tool_call filters", () => {
     sourcePath: "/workspace/.agents/rules/typescript.md",
     sourceLabel: ".agents/rules/typescript.md",
     body: "Typed",
+    hash: "hash",
     paths: ["./src/**/*.{ts,tsx}", ".github/**"],
     events: { tool_call: ["edit", "write"] },
   };
@@ -486,7 +451,7 @@ test("parallel preflight matches aggregate once and block every governed tool", 
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
 
     assert.equal(fake.sent.length, 1);
-    assert.deepEqual(fake.sent[0].options, { deliverAs: "steer" });
+    assert.equal(fake.sent[0].via, "turn_end");
     assert.deepEqual(fake.sent[0].message.details.sources, [
       ".agents/rules/auth.md",
       ".agents/rules/typescript.md",
@@ -630,5 +595,133 @@ test("compaction re-injects unconditional rules and permits lazy re-injection", 
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
     assert.equal(fake.sent.length, 3);
     assert.match(fake.sent[2].message.content, /Fresh auth rule/);
+  });
+});
+
+test("a branch without the injection gets the rules again, and the old branch does not", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+    const firstPrompt = fake.session.appendUserMessage("first");
+    assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Base rule/);
+    const injectedLeaf = fake.session.appendUserMessage("answer");
+
+    // Go back to the first prompt, before the injection, as `/tree` or a resend does.
+    fake.session.branchTo(firstPrompt.parentId);
+    await fake.emit("session_tree", { type: "session_tree", newLeafId: firstPrompt.parentId, oldLeafId: injectedLeaf.id }, { cwd });
+    fake.session.appendUserMessage("first, again");
+    const onNewBranch = await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.match(onNewBranch.message.content, /Base rule/);
+
+    fake.session.branchTo(injectedLeaf.id);
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+  });
+});
+
+test("a resume or a reload does not inject the rules again", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    await writeRule(cwd, ".pi/rules/scoped.md", "---\npaths: src/**\n---\nScoped rule");
+    const session = new FakeSession();
+    const first = createFakePi(session);
+    extension(first.api);
+    await first.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await first.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.equal((await first.emit("tool_call", toolCall("edit", "src/a.ts"), { cwd })).block, true);
+    await first.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(first.sent.length, 1);
+
+    for (const reason of ["resume", "resume"]) {
+      const resumed = createFakePi(session);
+      extension(resumed.api);
+      await resumed.emit("session_start", { type: "session_start", reason }, { cwd });
+      assert.equal(await resumed.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+      assert.equal(await resumed.emit("tool_call", toolCall("edit", "src/a.ts"), { cwd }), undefined);
+      await resumed.emit("turn_end", { type: "turn_end" }, { cwd });
+      assert.equal(resumed.sent.length, 0);
+    }
+
+    await first.emit("session_start", { type: "session_start", reason: "reload" }, { cwd });
+    assert.equal(await first.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+  });
+});
+
+test("a fork from a node before the injection gets the rules", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const original = new FakeSession();
+    const prompt = original.appendUserMessage("first");
+    original.append({ type: "custom_message", customType: CUSTOM_MESSAGE_TYPE, content: "Base rule", display: true, details: { injectionId: "old", rules: [{ id: path.join(cwd, ".pi/rules/base.md"), hash: "any" }], sources: [], targets: {}, skills: [] } });
+
+    const forked = new FakeSession();
+    forked.append({ ...prompt });
+    const fake = createFakePi(forked);
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "fork" }, { cwd });
+    assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Base rule/);
+  });
+});
+
+test("an injection that a context edit removed counts as gone", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    const injection = fake.session.entries.at(-1)!;
+    fake.session.append({ type: "context_edit", targetId: injection.id, replacement: null });
+
+    assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Base rule/);
+  });
+});
+
+test("a queued injection that pi has not written yet is not sent twice", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    const queued = {
+      role: "custom",
+      customType: CUSTOM_MESSAGE_TYPE,
+      details: { injectionId: "queued", rules: [{ id: path.join(cwd, ".pi/rules/base.md"), hash: "any" }], sources: [], targets: {}, skills: [] },
+    };
+
+    await fake.emit("turn_end", { type: "turn_end", pendingMessages: [queued] }, { cwd });
+    assert.equal(fake.sent.length, 0);
+  });
+});
+
+test("an injection from an older version loads the rules once more", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const session = new FakeSession();
+    session.append({ type: "custom_message", customType: CUSTOM_MESSAGE_TYPE, content: "Base rule", display: true, details: { sources: [".pi/rules/base.md"], targets: {} } });
+    const fake = createFakePi(session);
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "resume" }, { cwd });
+
+    assert.match((await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd })).message.content, /Base rule/);
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+  });
+});
+
+test("a turn after a compaction gets the unconditional rules once", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+
+    await fake.emit("session_compact", { type: "session_compact", willRetry: true }, { cwd });
+    assert.equal(fake.sent.length, 1);
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+    assert.equal(await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd }), undefined);
+    assert.equal(fake.sent.length, 1);
   });
 });

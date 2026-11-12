@@ -1,11 +1,25 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { stripFrontmatter, type ExtensionAPI, type Skill } from "@earendil-works/pi-coding-agent";
+import {
+  stripFrontmatter,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type Skill,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { DEFAULT_RULE_SOURCES, discoverRules, loadRuleConfig, type RuleSource } from "./discovery.ts";
 import { extractTarget, ruleMatchesTarget, ruleMatchesToolCallEvent } from "./matching.ts";
+import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
 import type { PendingRule, Rule, RuleInjectionDetails } from "./types.ts";
 
-export const CUSTOM_MESSAGE_TYPE = "pi-rules-injection";
+export { CUSTOM_MESSAGE_TYPE };
+
+export interface RuleInjection {
+  customType: typeof CUSTOM_MESSAGE_TYPE;
+  content: string;
+  display: true;
+  details: RuleInjectionDetails;
+}
 
 export function makeExtension() {
   return (pi: ExtensionAPI): void => {
@@ -14,10 +28,13 @@ export function makeExtension() {
     let reportWarning = (message: string): void => {
       process.stderr.write(`${message}\n`);
     };
-    const injectedRuleIds = new Set<string>();
-    const injectedSkillNames = new Set<string>();
     const availableSkills = new Map<string, Skill>();
+    // Matches from the tool calls of the current turn. They load when the turn ends.
     const pendingRules = new Map<string, PendingRule>();
+    // Injections sent with pi.sendMessage that pi has not written to the session yet.
+    const inFlight = new Map<string, RuleInjectionDetails>();
+    // Building the projection walks the whole branch, and parallel tool calls share one leaf.
+    let cachedBranch: { leafId: string | null; state: InjectedState } | undefined;
 
     pi.registerMessageRenderer<RuleInjectionDetails>(CUSTOM_MESSAGE_TYPE, (message, { expanded }, theme) => {
       const details = message.details;
@@ -58,9 +75,39 @@ export function makeExtension() {
       return discovery.rules;
     };
 
-    const createRuleInjection = async (entries: PendingRule[]) => {
-      const skillBlocks = await loadSkillBlocks(entries, availableSkills, injectedSkillNames, reportWarning);
-      for (const skill of skillBlocks) injectedSkillNames.add(skill.name);
+    const withInFlight = (base: InjectedState): InjectedState => {
+      for (const injectionId of base.injectionIds) inFlight.delete(injectionId);
+      if (inFlight.size === 0) return base;
+      const merged: InjectedState = {
+        rules: new Map(base.rules),
+        skills: new Set(base.skills),
+        injectionIds: new Set(base.injectionIds),
+      };
+      for (const details of inFlight.values()) addInjection(merged, details);
+      return merged;
+    };
+
+    const branchState = (ctx: ExtensionContext): InjectedState => {
+      const leafId = ctx.sessionManager.getLeafId();
+      if (cachedBranch?.leafId !== leafId) {
+        cachedBranch = { leafId, state: collectInjectedState(ctx.sessionManager.buildSessionProjection().entries) };
+      }
+      return withInFlight(cachedBranch.state);
+    };
+
+    // Takes the matches of this turn and adds every unconditional rule that the model does not have.
+    const takeDueRules = (state: InjectedState): PendingRule[] => {
+      const due = [...pendingRules.values()].filter((entry) => !state.rules.has(entry.rule.id));
+      pendingRules.clear();
+      for (const rule of rules) {
+        if (isScoped(rule) || state.rules.has(rule.id)) continue;
+        if (!due.some((entry) => entry.rule.id === rule.id)) due.push({ rule, targets: new Set<string>() });
+      }
+      return due;
+    };
+
+    const buildInjection = async (entries: PendingRule[], state: InjectedState): Promise<RuleInjection> => {
+      const skillBlocks = await loadSkillBlocks(entries, availableSkills, state.skills, reportWarning);
       return createInjection(entries, skillBlocks);
     };
 
@@ -70,9 +117,13 @@ export function makeExtension() {
         : (message) => process.stderr.write(`${message}\n`);
       await reloadConfig(ctx.cwd);
       rules = config.enabled ? await reloadRules(ctx.cwd) : [];
-      injectedRuleIds.clear();
-      injectedSkillNames.clear();
       availableSkills.clear();
+      pendingRules.clear();
+      inFlight.clear();
+      cachedBranch = undefined;
+    });
+
+    pi.on("session_tree", () => {
       pendingRules.clear();
     });
 
@@ -81,15 +132,10 @@ export function makeExtension() {
       for (const skill of event.systemPromptOptions?.skills ?? []) availableSkills.set(skill.name, skill);
       if (!config.enabled) return;
       rules = await reloadRules(ctx.cwd);
-      const unconditional = freshUnconditionalRules(rules, injectedRuleIds)
-        .filter((rule) => !pendingRules.has(rule.id))
-        .map((rule) => ({ rule, targets: new Set<string>() }));
-      const entries = [...pendingRules.values(), ...unconditional];
-      if (entries.length === 0) return;
-      const injection = await createRuleInjection(entries);
-      for (const entry of entries) injectedRuleIds.add(entry.rule.id);
-      pendingRules.clear();
-      return { message: injection };
+      const state = branchState(ctx);
+      const due = takeDueRules(state);
+      if (due.length === 0) return;
+      return { message: await buildInjection(due, state) };
     });
 
     pi.on("tool_call", async (event, ctx) => {
@@ -97,46 +143,42 @@ export function makeExtension() {
       const target = extractTarget(event, ctx.cwd);
       if (!target) return;
       rules = await reloadRules(ctx.cwd);
+      const state = branchState(ctx);
 
       let shouldBlock = false;
       for (const rule of rules) {
-        if (injectedRuleIds.has(rule.id)) continue;
+        if (state.rules.has(rule.id)) continue;
         if (rule.paths && !ruleMatchesTarget(rule, target)) continue;
         if (!ruleMatchesToolCallEvent(rule, event.toolName)) continue;
         if (event.toolName !== "read") shouldBlock = true;
         const pending = pendingRules.get(rule.id);
-        const isScoped = Boolean(rule.paths || rule.events);
         if (pending) {
-          if (isScoped) pending.targets.add(target);
+          if (isScoped(rule)) pending.targets.add(target);
         } else {
-          pendingRules.set(rule.id, { rule, targets: new Set(isScoped ? [target] : []) });
+          pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [target] : []) });
         }
       }
       if (!shouldBlock) return;
 
-      // ponytail: reads can finish before the next model turn; mutations pause because their arguments are already issued.
+      // Reads can finish before the next model call. Edits and writes pause, because their arguments are already final.
       return { block: true, reason: `[pi-rules] Tool \`${event.toolName}\` paused so Pi can load matching rules. Review them, adjust the change if needed, then retry.` };
     });
 
-    pi.on("turn_end", async (_event, ctx) => {
+    pi.on("turn_end", async (event, ctx) => {
       if (!config.enabled) {
         pendingRules.clear();
         return;
       }
       rules = await reloadRules(ctx.cwd);
-      for (const rule of freshUnconditionalRules(rules, injectedRuleIds)) {
-        if (!pendingRules.has(rule.id)) pendingRules.set(rule.id, { rule, targets: new Set<string>() });
-      }
-      const pending = [...pendingRules.values()].sort(comparePendingRules);
-      if (pending.length === 0) return;
-      pi.sendMessage(await createRuleInjection(pending), { deliverAs: "steer" });
-      for (const entry of pending) injectedRuleIds.add(entry.rule.id);
-      pendingRules.clear();
+      // The preview already holds the entries that earlier handlers proposed for this boundary.
+      const state = withInFlight(collectInjectedState(event.context.contextEntries, event.context.pendingMessages));
+      const due = takeDueRules(state);
+      if (due.length === 0) return;
+      const injection = await buildInjection(due, state);
+      return { entries: [...event.entries, { type: "custom_message", ...injection }] };
     });
 
     pi.on("session_compact", async (_event, ctx) => {
-      injectedRuleIds.clear();
-      injectedSkillNames.clear();
       pendingRules.clear();
       await reloadConfig(ctx.cwd);
       if (!config.enabled) {
@@ -144,11 +186,18 @@ export function makeExtension() {
         return;
       }
       rules = await reloadRules(ctx.cwd);
-      const unconditional = freshUnconditionalRules(rules, injectedRuleIds);
-      if (unconditional.length === 0) return;
-      const entries = unconditional.map((rule) => ({ rule, targets: new Set<string>() }));
-      pi.sendMessage(await createRuleInjection(entries));
-      for (const rule of unconditional) injectedRuleIds.add(rule.id);
+      // A compaction that retries the turn makes a model call before any turn boundary, so restore the rules now.
+      const state = branchState(ctx);
+      const due = takeDueRules(state);
+      if (due.length === 0) return;
+      const injection = await buildInjection(due, state);
+      inFlight.set(injection.details.injectionId, injection.details);
+      pi.sendMessage(injection);
+    });
+
+    pi.on("agent_settled", () => {
+      // By now pi has written every queued message or dropped it.
+      inFlight.clear();
     });
   };
 }
@@ -158,7 +207,7 @@ interface SkillBlock {
   content: string;
 }
 
-export function createInjection(entries: PendingRule[], skillBlocks: SkillBlock[] = []) {
+export function createInjection(entries: PendingRule[], skillBlocks: SkillBlock[] = []): RuleInjection {
   const sorted = [...entries].sort(comparePendingRules);
   const sources = sorted.map((entry) => entry.rule.sourceLabel);
   const targets = Object.fromEntries(sorted.map((entry) => [entry.rule.sourceLabel, [...entry.targets].sort()]));
@@ -171,18 +220,24 @@ export function createInjection(entries: PendingRule[], skillBlocks: SkillBlock[
     customType: CUSTOM_MESSAGE_TYPE,
     content: skillBody ? `${ruleBody}\n\n---\n\n${skillBody}` : ruleBody,
     display: true,
-    details: { sources, targets, skills: skillBlocks.map((skill) => skill.name) } satisfies RuleInjectionDetails,
+    details: {
+      injectionId: randomUUID(),
+      rules: sorted.map((entry) => ({ id: entry.rule.id, hash: entry.rule.hash })),
+      sources,
+      targets,
+      skills: skillBlocks.map((skill) => skill.name),
+    },
   };
 }
 
 async function loadSkillBlocks(
   entries: PendingRule[],
   availableSkills: Map<string, Skill>,
-  injectedSkillNames: Set<string>,
+  injectedSkills: ReadonlySet<string>,
   reportWarning: (message: string) => void,
 ): Promise<SkillBlock[]> {
   const names = [...new Set(entries.flatMap((entry) => entry.rule.skills ?? []))]
-    .filter((name) => !injectedSkillNames.has(name))
+    .filter((name) => !injectedSkills.has(name))
     .sort();
   const blocks: SkillBlock[] = [];
   for (const name of names) {
@@ -205,8 +260,8 @@ async function loadSkillBlocks(
   return blocks;
 }
 
-function freshUnconditionalRules(rules: Rule[], injectedRuleIds: Set<string>): Rule[] {
-  return rules.filter((rule) => !rule.paths && !rule.events && !injectedRuleIds.has(rule.id));
+function isScoped(rule: Rule): boolean {
+  return Boolean(rule.paths || rule.events);
 }
 
 function comparePendingRules(left: PendingRule, right: PendingRule): number {
