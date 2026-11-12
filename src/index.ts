@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import {
   stripFrontmatter,
   type ExtensionAPI,
@@ -18,6 +18,7 @@ import {
   type FileAccess,
   type ToolTarget,
 } from "./matching.ts";
+import { OtherProjects } from "./projects.ts";
 import { addInjection, collectInjectedState, CUSTOM_MESSAGE_TYPE, type InjectedState } from "./state.ts";
 import type { DueRule, PendingRule, RemovedRule, Rule, RuleInjectionDetails, RuleToolName } from "./types.ts";
 
@@ -30,8 +31,9 @@ export interface RuleInjection {
   details: RuleInjectionDetails;
 }
 
-export function makeExtension() {
+export function makeExtension(options: { otherProjects?: () => OtherProjects } = {}) {
   return (pi: ExtensionAPI): void => {
+    const otherProjects = options.otherProjects?.() ?? new OtherProjects();
     let config: { enabled: boolean; sources: RuleSource[] } = { enabled: true, sources: DEFAULT_RULE_SOURCES };
     let rules: Rule[] = [];
     let reportWarning = (message: string): void => {
@@ -115,28 +117,31 @@ export function makeExtension() {
      * Takes the matches of this turn, and adds every unconditional rule that the model does not have,
      * every rule whose file changed after the model got it, and every rule whose file is gone.
      */
-    const takeDueRules = (state: InjectedState): { due: DueRule[]; removed: RemovedRule[] } => {
+    const takeDueRules = async (state: InjectedState): Promise<{ due: DueRule[]; removed: RemovedRule[] }> => {
       // A rule file can change between the tool call and the end of the turn, so take the newest version.
-      const current = new Map(rules.map((rule) => [rule.id, rule]));
+      const known = [...rules, ...otherProjects.knownRules()];
+      const current = new Map(known.map((rule) => [rule.id, rule]));
       const due: DueRule[] = [];
       for (const entry of pendingRules.values()) {
         const rule = current.get(entry.rule.id);
         if (rule && !state.rules.has(rule.id)) due.push({ rule, targets: entry.targets, updated: false });
       }
       pendingRules.clear();
-      for (const rule of rules) {
+      for (const rule of current.values()) {
         if (due.some((entry) => entry.rule.id === rule.id)) continue;
-        const known = state.rules.get(rule.id);
-        if (known) {
-          if (known.hash !== rule.hash) due.push({ rule, targets: new Set<string>(), updated: true });
-        } else if (!isScoped(rule)) {
+        const injected = state.rules.get(rule.id);
+        if (injected) {
+          if (injected.hash !== rule.hash) due.push({ rule, targets: new Set<string>(), updated: true });
+        } else if (!isScoped(rule) && rules.includes(rule)) {
+          // Rules without `paths` of another project load only with a file of that project.
           due.push({ rule, targets: new Set<string>(), updated: false });
         }
       }
-      const discovered = new Set(rules.map((rule) => rule.id));
-      const removed = [...state.rules]
-        .filter(([id]) => !discovered.has(id))
-        .map(([id, known]) => ({ id, label: known.label }));
+      // The rule id is the path of its file.
+      const removed: RemovedRule[] = [];
+      for (const [id, injected] of state.rules) {
+        if (!(await fileExists(id))) removed.push({ id, label: injected.label });
+      }
       return { due, removed };
     };
 
@@ -158,6 +163,7 @@ export function makeExtension() {
       availableSkills.clear();
       pendingRules.clear();
       inFlight.clear();
+      otherProjects.clear();
       cachedBranch = undefined;
     });
 
@@ -171,7 +177,7 @@ export function makeExtension() {
       if (!config.enabled) return;
       rules = await reloadRules(ctx.cwd);
       const state = branchState(ctx);
-      const injection = await buildInjection(takeDueRules(state), state);
+      const injection = await buildInjection(await takeDueRules(state), state);
       if (!injection) return;
       return { message: injection };
     });
@@ -186,16 +192,22 @@ export function makeExtension() {
       let shouldBlock = false;
       for (const { target, access } of accesses) {
         const label = targetLabel(target);
-        for (const rule of rules) {
+        const other = await otherProjects.rulesFor(target.absolutePath, ctx.cwd, config.sources);
+        for (const diagnostic of other.diagnostics) {
+          reportWarning(`[pi-rules] skipped ${diagnostic.sourceLabel}: ${diagnostic.reason}`);
+        }
+        for (const rule of [...rules, ...other.rules]) {
           if (state.rules.has(rule.id)) continue;
           if (!ruleAppliesToTarget(rule, target)) continue;
           if (!accessMatchesEvents(rule, access)) continue;
           if (access !== "read" && rule.timing !== "after") shouldBlock = true;
+          // Show the file for a scoped rule, and for any rule of another project.
+          const showTarget = isScoped(rule) || !rules.includes(rule);
           const pending = pendingRules.get(rule.id);
           if (pending) {
-            if (isScoped(rule)) pending.targets.add(label);
+            if (showTarget) pending.targets.add(label);
           } else {
-            pendingRules.set(rule.id, { rule, targets: new Set(isScoped(rule) ? [label] : []) });
+            pendingRules.set(rule.id, { rule, targets: new Set(showTarget ? [label] : []) });
           }
         }
       }
@@ -213,7 +225,7 @@ export function makeExtension() {
       rules = await reloadRules(ctx.cwd);
       // The preview already holds the entries that earlier handlers proposed for this boundary.
       const state = withInFlight(collectInjectedState(event.context.contextEntries, event.context.pendingMessages));
-      const injection = await buildInjection(takeDueRules(state), state);
+      const injection = await buildInjection(await takeDueRules(state), state);
       if (!injection) return;
       return { entries: [...event.entries, { type: "custom_message", ...injection }] };
     });
@@ -228,7 +240,7 @@ export function makeExtension() {
       rules = await reloadRules(ctx.cwd);
       // A compaction that retries the turn makes a model call before any turn boundary, so restore the rules now.
       const state = branchState(ctx);
-      const injection = await buildInjection(takeDueRules(state), state);
+      const injection = await buildInjection(await takeDueRules(state), state);
       if (!injection) return;
       inFlight.set(injection.details.injectionId, injection.details);
       pi.sendMessage(injection);
@@ -323,6 +335,15 @@ async function loadSkillBlocks(
     }
   }
   return blocks;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isScoped(rule: Rule): boolean {

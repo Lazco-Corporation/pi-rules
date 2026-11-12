@@ -43,6 +43,8 @@ interface DiscoveryOptions {
   env?: NodeJS.ProcessEnv;
   home?: string;
   sources?: RuleSource[];
+  /** Put before the label of each project rule, to name a project other than the working directory. */
+  labelPrefix?: string;
 }
 
 export interface RuleConfigResult {
@@ -113,9 +115,11 @@ export async function discoverRules(cwd: string, options: DiscoveryOptions = {})
       names.add(name);
 
       const sourcePath = path.join(root.directory, ...relativePath.split("/"));
-      const sourceLabel = `${root.label}/${relativePath}`;
+      const prefix = root.scope === "repo" ? (options.labelPrefix ?? "") : "";
+      const sourceLabel = `${prefix}${root.label}/${relativePath}`;
       const parsed = await parseRuleFile(sourcePath, sourceLabel, root.scope);
       if ("rule" in parsed) {
+        if (root.scope === "repo") parsed.rule.projectRoot = path.resolve(cwd);
         rules.push(parsed.rule);
       } else {
         diagnostics.push(parsed.diagnostic);

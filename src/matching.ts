@@ -26,15 +26,10 @@ export function extractTarget(event: ToolCallEvent, cwd: string, home = os.homed
 export function resolveTarget(rawPath: string, cwd: string, home = os.homedir(), base = cwd): ToolTarget {
   const expanded = rawPath === "~" || rawPath.startsWith("~/") ? path.join(home, rawPath.slice(1)) : rawPath;
   const absolutePath = path.resolve(base, expanded);
-  const relativePath = path.relative(cwd, absolutePath);
-  const inside =
-    relativePath.length > 0 &&
-    relativePath !== ".." &&
-    !relativePath.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relativePath);
-  return inside
-    ? { absolutePath: toPosixPath(absolutePath), relativePath: toPosixPath(relativePath) }
-    : { absolutePath: toPosixPath(absolutePath) };
+  const relativePath = pathInside(cwd, absolutePath);
+  return relativePath === undefined
+    ? { absolutePath: toPosixPath(absolutePath) }
+    : { absolutePath: toPosixPath(absolutePath), relativePath };
 }
 
 /** The text that the injection message shows for a target. */
@@ -43,14 +38,18 @@ export function targetLabel(target: ToolTarget): string {
 }
 
 /**
- * A project rule applies only inside the working directory, and its globs are relative to it.
+ * A project rule applies only inside its project, and its globs are relative to it.
  * A user rule applies to any file. Its globs can be absolute (`/…`), start at the home directory (`~/…`),
  * or be relative: a relative glob matches the path inside the working directory or the absolute path.
  */
 export function ruleAppliesToTarget(rule: Rule, target: ToolTarget, home = os.homedir()): boolean {
-  if (rule.scope === "repo" && target.relativePath === undefined) return false;
+  if (rule.scope === "repo") {
+    const projectPath = rule.projectRoot === undefined ? undefined : pathInside(rule.projectRoot, target.absolutePath);
+    if (projectPath === undefined) return false;
+    return !rule.paths || rule.paths.some((pattern) => isMatch(projectPath, normalizePattern(pattern)));
+  }
   if (!rule.paths) return true;
-  return rule.paths.some((pattern) => patternMatches(pattern, rule, target, home));
+  return rule.paths.some((pattern) => userPatternMatches(normalizePattern(pattern), target, home));
 }
 
 export function ruleMatchesToolCallEvent(rule: Rule, toolName: string): boolean {
@@ -65,9 +64,7 @@ export function accessMatchesEvents(rule: Rule, access: FileAccess): boolean {
   return ruleMatchesToolCallEvent(rule, access);
 }
 
-function patternMatches(pattern: string, rule: Rule, target: ToolTarget, home: string): boolean {
-  const normalized = toPosixPath(pattern).replace(/^\.\//, "");
-  if (rule.scope === "repo") return isMatch(target.relativePath ?? "", normalized);
+function userPatternMatches(normalized: string, target: ToolTarget, home: string): boolean {
   if (normalized.startsWith("/")) return isMatch(target.absolutePath, normalized);
   if (normalized.startsWith("~/")) {
     // Compare in `~/` form, so glob characters in the home path cannot change the pattern.
@@ -77,6 +74,19 @@ function patternMatches(pattern: string, rule: Rule, target: ToolTarget, home: s
   }
   if (target.relativePath !== undefined && isMatch(target.relativePath, normalized)) return true;
   return isMatch(target.absolutePath.replace(/^\//, ""), normalized);
+}
+
+function normalizePattern(pattern: string): string {
+  return toPosixPath(pattern).replace(/^\.\//, "");
+}
+
+/** The path of `absolutePath` inside `directory`, with `/` separators, or `undefined` when it is outside. */
+export function pathInside(directory: string, absolutePath: string): string | undefined {
+  const relativePath = path.relative(directory, absolutePath);
+  if (relativePath.length === 0 || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    return undefined;
+  }
+  return toPosixPath(relativePath);
 }
 
 function isMatch(candidate: string, pattern: string): boolean {
