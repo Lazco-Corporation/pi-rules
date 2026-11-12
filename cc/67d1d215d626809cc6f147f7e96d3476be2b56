@@ -1,0 +1,59 @@
+test/rules.test.ts
+  s_7fc6bd9345386e::t_e738b655b260e6 6,12-23,32,39-40,42-46,48-56,60-61,70,83
+  s_7fc6bd9345386e::t_d4591f2e71932e 1-5,8-11,24-31,33-38,47,57-59,62-69,71-82,84-105,107,109-134,136,138-157,159-161,165,167,169,173-176,180-223,225-227,229-236,238-269,275-290,293-316,318-365,368-588,590-592,594-634
+  s_7fc6bd9345386e::t_f2689dec09ffc3 7,41,106,135,158,162-164,166,168,224,237,270-274,291-292,317,366-367
+  s_7fc6bd9345386e::t_1afe4fc925100e 108,137,170-172,177-179,228,589,593
+src/matching.ts
+  s_7fc6bd9345386e::t_88955975ee4a04 4
+tsconfig.json
+  s_7fc6bd9345386e::t_c8d5a00b16550e 3-9,12-13,15,17
+scripts/audit-sessions.py
+  s_7fc6bd9345386e::t_c8d5a00b16550e 11-15,24-68,70-100,105-139,141-257
+  s_7fc6bd9345386e::t_ab2979feaa389a 1-10,16-23,69,101-104,140
+src/discovery.ts
+  s_7fc6bd9345386e::t_88955975ee4a04 7,17,92,262
+scripts/release.sh
+  s_7fc6bd9345386e::t_c8d5a00b16550e 1-162
+CHANGELOG.md
+  s_7fc6bd9345386e::t_68753421c4e6ff 1-5
+LICENSE
+  s_7fc6bd9345386e::t_c8d5a00b16550e 1-2
+  s_7fc6bd9345386e::t_9319467ad8fa5a 3-663
+AGENTS.md
+  s_7fc6bd9345386e::t_a6205f1952516a 1-103
+README.md
+  s_7fc6bd9345386e::t_de4b02af129924 1-2,5,7,9,11,13-14,16,18-22,24-26,29,32-36,42,44,46,49-50,53-54,61-63,65,74,77-80,82-83,85-110,112-116,118-122,130,133,135,137,145,148-150,152,154-155,157-158,160,176-179,181-183,185,187-191,193,195-197,201-202
+CONTRIBUTING.md
+  s_7fc6bd9345386e::t_ab430e0145087f 1-51
+scripts/changelog-notes.sh
+  s_7fc6bd9345386e::t_c8d5a00b16550e 1-32
+.github/workflows/release-npm.yml
+  s_7fc6bd9345386e::t_9c0d8f122d1482 1-111
+THIRD_PARTY_NOTICES.md
+  s_7fc6bd9345386e::t_c8d5a00b16550e 1-34
+src/index.ts
+  s_7fc6bd9345386e::t_46eb0abd472abd 2,4-6,12,47,54,72,82,96,122,142
+package.json
+  s_7fc6bd9345386e::t_a69fda3c06a029 2,4,6-25,28,30-31,33-36,43-49,51-54,56-58
+.gitignore
+  s_7fc6bd9345386e::t_c8d5a00b16550e 2-3
+  s_7fc6bd9345386e::t_9c0d8f122d1482 4-5
+bun.lock
+  s_7fc6bd9345386e::t_a6364ff9bd778e 1-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cc67d1d215d626809cc6f147f7e96d3476be2b56",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
