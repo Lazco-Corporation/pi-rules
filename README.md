@@ -78,7 +78,7 @@ Keep tests next to the behavior they check.
 | The agent calls | What happens |
 | --- | --- |
 | `read` on a matching file | The read runs. The rule loads before the next model call. |
-| `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. |
+| `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. With [`timing: after`](#timing), the call runs, and the rule loads like a read. |
 
 Each rule loads once on the current branch of the conversation.
 pi-rules reads the injected rules from the messages that the model sees, so it stays correct when you:
@@ -122,7 +122,7 @@ A file without frontmatter is a rule for every session.
 | `paths` | a glob or a list of globs | The rule loads only for matching files. |
 | `events` | `tool_call: <tool>` or a list of tools | The rule loads only for these tools: `read`, `edit`, `write`. |
 | `skills` | a skill name or a list of names | These skills load with the rule. |
-| `timing` | `before` (default) or `after` | `after` lets an edit or a write run first, and the rule loads after it. See [Timing](#timing). |
+| `timing` | `before` (default) or `after` | `after` lets an edit or a write run first, and the rule loads after it. Only for a rule with `paths` or `events`. See [Timing](#timing). |
 
 Globs use `/` and match dotfiles.
 How a glob matches depends on the directory of the rule:
@@ -169,6 +169,7 @@ Use camelCase for variables.
 
 If the change breaks the rule, the agent fixes it in the next step.
 Keep the default for rules that the agent must know before it changes a file, such as a rule that a file is generated.
+A rule without `paths` and `events` loads before the first model call, so `timing` has no effect on it.
 
 ### Skills
 

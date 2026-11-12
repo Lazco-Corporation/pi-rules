@@ -878,9 +878,17 @@ test("timing: after loads the rule after an edit or a write instead of pausing i
 
 test("an unknown timing value skips the rule with a warning", async () => {
   await withTempDirectory(async (cwd) => {
-    const file = path.join(cwd, "bad.md");
-    await writeFile(file, "---\ntiming: later\n---\nBad", "utf8");
-    const result: Loose = await parseRuleFile(file, "bad.md", "repo");
-    assert.equal(result.diagnostic.reason, "timing must be before or after");
+    await writeRule(cwd, ".pi/rules/bad.md", "---\npaths: src/**\ntiming: later\n---\nBad rule");
+    await writeRule(cwd, ".pi/rules/good.md", "Good rule");
+    const warnings: string[] = [];
+    const ctx = { cwd, hasUI: true, ui: { notify: (message: string) => warnings.push(message) } };
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+    const injection = await fake.emit("before_agent_start", { type: "before_agent_start" }, ctx);
+    assert.match(injection.message.content, /Good rule/);
+    assert.equal(await fake.emit("tool_call", toolCall("edit", "src/a.ts"), ctx), undefined);
+    assert.equal(warnings.some((warning) => /bad\.md: timing must be before or after/.test(warning)), true);
   });
 });
