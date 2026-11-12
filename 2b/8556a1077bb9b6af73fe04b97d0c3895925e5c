@@ -1,0 +1,33 @@
+AGENTS.md
+  s_7fc6bd9345386e::t_be0b70130267b3 30
+CHANGELOG.md
+  s_7fc6bd9345386e::t_be0b70130267b3 13
+  s_7fc6bd9345386e::t_6499f25f4aedde 15,17
+test/rules.test.ts
+  s_7fc6bd9345386e::t_be0b70130267b3 991,995,998-1033
+src/index.ts
+  s_7fc6bd9345386e::t_80076f991302fb 121,186,236,251
+  s_7fc6bd9345386e::t_8ed347ea1abbf5 11,16,22,142-144,147-149,198-199,203,348,353-355
+src/discovery.ts
+  s_7fc6bd9345386e::t_8ed347ea1abbf5 247-253
+README.md
+  s_7fc6bd9345386e::t_be0b70130267b3 164-165
+src/projects.ts
+  s_7fc6bd9345386e::t_80076f991302fb 6,9-13,30,35-36,39-47,67-72,88,92-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b8556a1077bb9b6af73fe04b97d0c3895925e5c",
+  "prompts": {},
+  "sessions": {
+    "s_7fc6bd9345386e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1cf30-6b41-72e1-b90e-aae5b6a522f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
