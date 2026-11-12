@@ -5,6 +5,7 @@ src/types.ts
   s_7fc6bd9345386e::t_d1072db1601a7e 26
 test/rules.test.ts
   s_7fc6bd9345386e::t_651ed01c08a84d 845,864-888
+  s_7fc6bd9345386e::t_72401fea97f2a9 861-863
 src/index.ts
   s_7fc6bd9345386e::t_651ed01c08a84d 183,193
 CHANGELOG.md
