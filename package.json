@@ -1,6 +1,6 @@
 {
   "name": "@lazco/pi-rules",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Pi extension: load Markdown rules into the agent context for the whole project or for matching files",
   "type": "module",
   "license": "AGPL-3.0-or-later",
