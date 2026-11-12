@@ -918,3 +918,14 @@ test("a bash write pauses for a before rule, and a bash read or an after rule lo
     assert.match(write.reason, /Tool `bash` paused/);
   });
 });
+
+test("a bash change matches rules that list edit or write in events", async () => {
+  await withTempDirectory(async (cwd) => {
+    await writeRule(cwd, ".pi/rules/on-edit.md", "---\npaths: \"**/*.md\"\nevents:\n  tool_call: edit\n---\nEdit rule");
+    const fake = createFakePi();
+    extension(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    const call = { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command: "echo x >> notes.md" } };
+    assert.equal((await fake.emit("tool_call", call, { cwd })).block, true);
+  });
+});

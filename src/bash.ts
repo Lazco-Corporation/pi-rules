@@ -11,29 +11,48 @@ export interface BashTargets {
   reads: ToolTarget[];
 }
 
-const COMMAND_SEPARATORS = new Set(["&&", "||", ";", ";;", "|", "|&", "&", "(", ")"]);
+const COMMAND_SEPARATORS = new Set(["&&", "||", ";", ";;", "|", "|&", "&"]);
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>"]);
-const PREFIX_COMMANDS = new Set(["sudo", "command", "env", "nohup", "time", "rtk"]);
 // A command line can name many words. Checking each one on disk costs a stat call.
-const MAX_READ_CANDIDATES = 64;
+export const MAX_READ_CANDIDATES = 64;
+
+/** Commands that run another command, with their options that take a value. */
+const WRAPPERS: Record<string, string[]> = {
+  sudo: ["-u", "-g", "-U", "-C", "-h", "-p", "-r", "-t", "-D", "-R", "-T"],
+  env: ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
+  command: [],
+  nohup: [],
+  time: ["-f", "-o", "--format", "--output"],
+  rtk: [],
+};
+
+const COPY_VALUE_OPTIONS = ["-t", "-S", "--target-directory", "--suffix"];
+const INSTALL_VALUE_OPTIONS = [...COPY_VALUE_OPTIONS, "-m", "-o", "-g", "--mode", "--owner", "--group"];
+const TOUCH_VALUE_OPTIONS = ["-r", "-d", "-t", "--reference", "--date"];
 
 /**
  * Find the files that a bash command changes or reads, without running it.
- * Write detection covers only explicit forms: redirections, `tee`, `sed -i`, `perl -i`, `cp`, `mv`, `install`, and `touch`.
+ * Write detection covers only explicit forms: redirections, `tee`, `touch`, `sed -i`, `perl -i`, `cp`, `mv`, and `install`.
  * A miss is better than a false write, because a write can pause the whole command.
- * Code inside a heredoc is not read, so a script that it writes or runs stays unknown.
+ * Code inside a heredoc, or in a script that the command runs, is not read.
  */
 export async function extractBashTargets(command: string, cwd: string, home = os.homedir()): Promise<BashTargets> {
-  let tokens: ParseEntry[];
-  try {
-    tokens = parse(toSingleLine(withoutHeredocBodies(command)), (name) => process.env[name] ?? `$${name}`);
-  } catch {
-    // shell-quote rejects some expansions, such as `${}`. The command then counts as unknown.
-    return { writes: [], reads: [] };
+  const tokens: ParseEntry[] = [];
+  // shell-quote reads `#` to the end of its input, so each line is parsed alone to keep the commands after a comment line.
+  for (const line of logicalLines(withoutHeredocBodies(command))) {
+    try {
+      tokens.push(...parse(line, (name) => process.env[name] ?? `$${name}`), { op: ";" });
+    } catch {
+      // shell-quote rejects some expansions, such as `${}`. The command then counts as unknown.
+      return { writes: [], reads: [] };
+    }
   }
+
   const writes = new Map<string, ToolTarget>();
-  const readCandidates: Array<{ word: string; directory: string }> = [];
+  const readCandidates: Array<{ word: string; base: string }> = [];
   let directory = cwd;
+  const subshellDirectories: string[] = [];
+  let words: string[] = [];
 
   const addWrite = (word: string, base: string) => {
     if (!isPathWord(word) || word.startsWith("/dev/")) return;
@@ -41,49 +60,63 @@ export async function extractBashTargets(command: string, cwd: string, home = os
     writes.set(target.absolutePath, target);
   };
 
-  for (const simple of splitCommands(tokens)) {
-    const words: string[] = [];
-    for (let index = 0; index < simple.length; index++) {
-      const token = simple[index];
-      if (typeof token === "string") {
-        words.push(token);
-        continue;
-      }
-      if (!token || !("op" in token)) continue;
-      const next = simple[index + 1];
-      if (WRITE_REDIRECTS.has(token.op) && typeof next === "string") {
-        addWrite(next, directory);
-        index++;
-      } else if (token.op === "<" && typeof next === "string") {
-        readCandidates.push({ word: next, directory });
-        index++;
-      } else if (token.op === ">&" && typeof next === "string") {
-        if (!/^\d+$/.test(next)) addWrite(next, directory);
-        index++;
-      } else if ((token.op === "<<" || token.op === "<<<") && typeof next === "string") {
-        // The heredoc delimiter or the here-string is text, not a file.
-        index++;
-      }
-    }
-    const [name, ...args] = stripPrefixes(words);
-    if (name === undefined) continue;
-
+  const finishCommand = async () => {
+    const [name, ...args] = withoutWrappers(words);
+    words = [];
+    if (name === undefined) return;
     if (name === "cd") {
       const destination = args.find((arg) => !arg.startsWith("-"));
       if (args.length === 0) directory = home;
       else if (destination) directory = resolveTarget(destination, cwd, home, directory).absolutePath;
+      return;
+    }
+    const { written, readOnly } = await commandFiles(path.basename(name), args, directory, home);
+    for (const word of written) addWrite(word, directory);
+    for (const word of readOnly) {
+      if (isPathWord(word)) readCandidates.push({ word, base: directory });
+    }
+  };
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (typeof token === "string") {
+      words.push(token);
       continue;
     }
-
-    const written = await intoDirectories(writtenFiles(name, args), name, args, directory, home);
-    for (const word of written) addWrite(word, directory);
-    for (const word of args) {
-      if (!written.includes(word) && isPathWord(word)) readCandidates.push({ word, directory });
+    if (!token || "comment" in token) continue;
+    if (!("op" in token)) continue;
+    if (token.op === "glob") {
+      words.push(token.pattern);
+      continue;
+    }
+    const next = tokens[index + 1];
+    if (token.op === "(") {
+      await finishCommand();
+      subshellDirectories.push(directory);
+    } else if (token.op === ")") {
+      await finishCommand();
+      // A `cd` inside a subshell does not move the commands after it.
+      directory = subshellDirectories.pop() ?? directory;
+    } else if (COMMAND_SEPARATORS.has(token.op)) {
+      await finishCommand();
+    } else if (WRITE_REDIRECTS.has(token.op) && typeof next === "string") {
+      addWrite(next, directory);
+      index++;
+    } else if (token.op === "<" && typeof next === "string") {
+      readCandidates.push({ word: next, base: directory });
+      index++;
+    } else if (token.op === ">&" && typeof next === "string") {
+      if (!/^\d+$/.test(next)) addWrite(next, directory);
+      index++;
+    } else if ((token.op === "<<" || token.op === "<<<") && typeof next === "string") {
+      // The heredoc delimiter or the here-string is text, not a file.
+      index++;
     }
   }
+  await finishCommand();
 
   const reads = new Map<string, ToolTarget>();
-  for (const { word, directory: base } of readCandidates.slice(0, MAX_READ_CANDIDATES)) {
+  for (const { word, base } of readCandidates.slice(0, MAX_READ_CANDIDATES)) {
     const target = resolveTarget(word, cwd, home, base);
     if (writes.has(target.absolutePath) || reads.has(target.absolutePath)) continue;
     if (await isFile(target.absolutePath)) reads.set(target.absolutePath, target);
@@ -91,87 +124,103 @@ export async function extractBashTargets(command: string, cwd: string, home = os
   return { writes: [...writes.values()], reads: [...reads.values()] };
 }
 
-function writtenFiles(name: string, args: string[]): string[] {
-  const operands = args.filter((arg) => !arg.startsWith("-"));
-  switch (path.basename(name)) {
+/** The files that one simple command changes, and the other arguments that can name files that it reads. */
+async function commandFiles(
+  name: string,
+  args: string[],
+  directory: string,
+  home: string,
+): Promise<{ written: string[]; readOnly: string[] }> {
+  const notWritten = (written: string[]) => ({ written, readOnly: args.filter((arg) => !written.includes(arg)) });
+  switch (name) {
     case "tee":
+      return notWritten(operands(args, []).files);
     case "touch":
-      return operands;
+      return notWritten(operands(args, TOUCH_VALUE_OPTIONS).files);
     case "sed":
-      return inPlaceFiles(args, (arg) => arg === "-i" || arg.startsWith("-i") || arg.startsWith("--in-place"), ["-e", "-f"]);
+      return notWritten(inPlaceFiles(args, (arg) => arg.startsWith("-i") || arg.startsWith("--in-place"), ["-e", "-f", "-l"]));
     case "perl":
-      return inPlaceFiles(args, (arg) => /^-[a-zA-Z]*i/.test(arg), ["-e", "-E"]);
+      // `-M` and `-I` take an attached value, so `-Mstrict` is not `-i`.
+      return notWritten(inPlaceFiles(args, (arg) => /^-[a-zA-HJ-LN-Z]*i/.test(arg), ["-e", "-E"]));
     case "cp":
     case "mv":
+      return notWritten(await copyDestinations(args, COPY_VALUE_OPTIONS, directory, home));
     case "install":
-      return copyDestinations(operands);
+      if (args.includes("-d") || args.includes("--directory")) return notWritten([]);
+      return notWritten(await copyDestinations(args, INSTALL_VALUE_OPTIONS, directory, home));
     default:
-      return [];
+      return notWritten([]);
   }
+}
+
+/** Split arguments into option values and operands. `valueOptions` take the next argument as their value. */
+function operands(args: string[], valueOptions: string[]): { files: string[]; values: Map<string, string> } {
+  const files: string[] = [];
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index] ?? "";
+    if (arg === "--") {
+      files.push(...args.slice(index + 1));
+      break;
+    }
+    if (valueOptions.includes(arg)) {
+      values.set(arg, args[index + 1] ?? "");
+      index++;
+      continue;
+    }
+    const [longName, longValue] = arg.split("=", 2);
+    if (longValue !== undefined && longName && valueOptions.includes(longName)) {
+      values.set(longName, longValue);
+      continue;
+    }
+    if (!arg.startsWith("-")) files.push(arg);
+  }
+  return { files, values };
 }
 
 /** Files of an in-place editor. Without a script option, the first operand is the script. */
 function inPlaceFiles(args: string[], isInPlaceFlag: (arg: string) => boolean, scriptOptions: string[]): string[] {
   if (!args.some(isInPlaceFlag)) return [];
-  const operands: string[] = [];
-  let hasScriptOption = false;
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index] ?? "";
-    if (scriptOptions.includes(arg)) {
-      hasScriptOption = true;
+  const { files, values } = operands(args, scriptOptions);
+  return values.size > 0 ? files : files.slice(1);
+}
+
+/** The files that `cp`, `mv`, or `install` creates: inside a target directory, or the last operand. */
+async function copyDestinations(args: string[], valueOptions: string[], directory: string, home: string): Promise<string[]> {
+  const { files, values } = operands(args, valueOptions);
+  const targetDirectory = values.get("-t") ?? values.get("--target-directory");
+  if (targetDirectory !== undefined) return files.map((source) => path.posix.join(targetDirectory, path.posix.basename(source)));
+  if (files.length < 2) return [];
+  const destination = files.at(-1) ?? "";
+  const sources = files.slice(0, -1);
+  const intoDirectory =
+    destination.endsWith("/") ||
+    sources.length > 1 ||
+    (await isDirectory(path.resolve(directory, destination.replace(/^~(?=\/|$)/, home))));
+  return intoDirectory ? sources.map((source) => path.posix.join(destination, path.posix.basename(source))) : [destination];
+}
+
+/** Drop variable assignments and commands such as `sudo -u root`, to reach the command that runs. */
+function withoutWrappers(words: string[]): string[] {
+  let index = 0;
+  while (index < words.length) {
+    const word = words[index] ?? "";
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
       index++;
-    } else if (!arg.startsWith("-")) {
-      operands.push(arg);
-    }
-  }
-  return hasScriptOption ? operands : operands.slice(1);
-}
-
-function copyDestinations(operands: string[]): string[] {
-  if (operands.length < 2) return [];
-  const destination = operands.at(-1) ?? "";
-  const sources = operands.slice(0, -1);
-  // A destination that ends with `/` is a directory, and each source lands inside it.
-  if (destination.endsWith("/") || sources.length > 1) {
-    return sources.map((source) => path.posix.join(destination, path.posix.basename(source)));
-  }
-  return [destination];
-}
-
-/** `cp a.ts dir` writes `dir/a.ts` when `dir` is an existing directory. */
-async function intoDirectories(written: string[], name: string, args: string[], directory: string, home: string): Promise<string[]> {
-  if (!["cp", "mv", "install"].includes(path.basename(name)) || written.length !== 1) return written;
-  const destination = written[0] ?? "";
-  if (!(await isDirectory(path.resolve(directory, destination.replace(/^~(?=\/|$)/, home))))) return written;
-  const source = args.filter((arg) => !arg.startsWith("-")).at(0) ?? "";
-  return [path.posix.join(destination, path.posix.basename(source))];
-}
-
-function splitCommands(tokens: ParseEntry[]): ParseEntry[][] {
-  const commands: ParseEntry[][] = [[]];
-  for (const token of tokens) {
-    if (typeof token === "object" && token !== null && "comment" in token) continue;
-    if (typeof token === "object" && token !== null && "op" in token && COMMAND_SEPARATORS.has(token.op)) {
-      commands.push([]);
       continue;
     }
-    commands.at(-1)?.push(token);
+    const valueOptions = WRAPPERS[word];
+    if (valueOptions === undefined) break;
+    index++;
+    while (index < words.length && (words[index] ?? "").startsWith("-")) {
+      index += valueOptions.includes(words[index] ?? "") ? 2 : 1;
+    }
   }
-  return commands.filter((command) => command.length > 0);
-}
-
-function stripPrefixes(words: string[]): string[] {
-  let start = 0;
-  while (start < words.length) {
-    const word = words[start] ?? "";
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) || PREFIX_COMMANDS.has(word)) start++;
-    else break;
-  }
-  return words.slice(start);
+  return words.slice(index);
 }
 
 function isPathWord(word: string): boolean {
-  return word.length > 0 && !word.startsWith("-") && !word.includes("$") && !/^\d+$/.test(word);
+  return word.length > 0 && !word.startsWith("-") && !/[$*?[\]{}]/.test(word) && !/^\d+$/.test(word);
 }
 
 async function isDirectory(absolutePath: string): Promise<boolean> {
@@ -202,13 +251,17 @@ function withoutHeredocBodies(command: string): string {
       continue;
     }
     output.push(line);
-    for (const match of line.matchAll(/<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/g)) {
+    for (const match of line.matchAll(/(?<!<)<<(?!<)(-?)\s*(['"]?)([^\s'"<>|;&()]+)\2/g)) {
       delimiters.push({ word: match[3] ?? "", stripTabs: match[1] === "-" });
     }
   }
   return output.join("\n");
 }
 
-function toSingleLine(command: string): string {
-  return command.replace(/\\\n/g, " ").replace(/\n/g, " ; ");
+/** Lines of the command, with `\` line continuations joined. */
+function logicalLines(command: string): string[] {
+  return command
+    .replace(/\\\n/g, " ")
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
 }

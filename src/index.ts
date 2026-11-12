@@ -182,7 +182,7 @@ export function makeExtension() {
         for (const rule of rules) {
           if (state.rules.has(rule.id)) continue;
           if (!ruleAppliesToTarget(rule, target)) continue;
-          if (!ruleMatchesToolCallEvent(rule, access)) continue;
+          if (!accessMatchesEvents(rule, access)) continue;
           if (access !== "read" && rule.timing !== "after") shouldBlock = true;
           const pending = pendingRules.get(rule.id);
           if (pending) {
@@ -234,14 +234,22 @@ export function makeExtension() {
   };
 }
 
-/** The files that a tool call reads or changes. A `bash` write counts as `write`, and a `bash` read as `read`. */
-async function fileAccesses(event: ToolCallEvent, cwd: string): Promise<Array<{ target: ToolTarget; access: RuleToolName }>> {
+/** How a tool call touches a file. A `bash` change can be an edit or a write, so it matches both. */
+type FileAccess = RuleToolName | "change";
+
+function accessMatchesEvents(rule: Rule, access: FileAccess): boolean {
+  if (access === "change") return ruleMatchesToolCallEvent(rule, "edit") || ruleMatchesToolCallEvent(rule, "write");
+  return ruleMatchesToolCallEvent(rule, access);
+}
+
+/** The files that a tool call reads or changes. */
+async function fileAccesses(event: ToolCallEvent, cwd: string): Promise<Array<{ target: ToolTarget; access: FileAccess }>> {
   if (event.toolName === "bash") {
     const command = (event.input as { command?: unknown }).command;
     if (typeof command !== "string") return [];
     const { writes, reads } = await extractBashTargets(command, cwd);
     return [
-      ...writes.map((target) => ({ target, access: "write" as const })),
+      ...writes.map((target) => ({ target, access: "change" as const })),
       ...reads.map((target) => ({ target, access: "read" as const })),
     ];
   }

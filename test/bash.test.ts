@@ -46,6 +46,15 @@ test("finds the files that a command writes", async () => {
       ["printf 'x' > out.txt 2>&1", ["out.txt"]],
       ["node x.js &> log.txt", ["log.txt"]],
       ["cat > notes.md <<EOF\n> not a redirect\nrm -rf /\nEOF", ["notes.md"]],
+      ["cat > notes.md <<EOF-1\n> body.txt\nEOF-1", ["notes.md"]],
+      ["install -m 644 a.ts dir/b.ts", ["dir/b.ts"]],
+      ["cp -t dir a.ts x.js", ["dir/a.ts", "dir/x.js"]],
+      ["mv --target-directory=sub a.ts", ["sub/a.ts"]],
+      ["touch -r a.ts -d 2026-11-12 stamped.md", ["stamped.md"]],
+      ["sudo -u root touch new.md", ["new.md"]],
+      ["echo ok # comment\nprintf x > after-comment.txt", ["after-comment.txt"]],
+      ["(cd sub; touch inner.go); touch outer.go", ["sub/inner.go", "outer.go"]],
+      ["cat <<<word\necho > after-here-string.txt", ["after-here-string.txt"]],
     ];
     for (const [command, writes] of cases) {
       assert.deepEqual((await targets(command, cwd, home)).writes, writes, command);
@@ -62,6 +71,8 @@ test("does not count text, file descriptors, or heredoc code as writes", async (
       "python3 - <<'PY'\nopen('a.ts', 'w').write('x')\nPY",
       "cat <<< 'a > b'",
       "ls *.ts # > comment",
+      "perl -Mstrict script.pl a.ts",
+      "install -d build",
     ];
     for (const command of commands) {
       assert.deepEqual((await targets(command, cwd, home)).writes, [], command);
