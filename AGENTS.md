@@ -27,7 +27,7 @@ All source sits under `src/`.
 | `projects.ts` | the project rules of other git projects that pi trusts, for files that the agent touches there |
 | `state.ts` | which rules and skills the model sees now, read from the injection messages on the current branch |
 | `discovery.ts` | `rules.json`, the rule sources, and the rule file parser |
-| `matching.ts` | the tool call target, and which rule applies to it: project rules inside the working directory, user rules to any file |
+| `matching.ts` | the tool call target, and which rule applies to it: project rules inside their own project, user rules to any file |
 | `types.ts` | the shared types |
 
 `scripts/audit-sessions.py` reads `~/.pi/agent/sessions` and prints JSON totals for each known problem.

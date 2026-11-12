@@ -988,13 +988,48 @@ test("a file in another project that pi does not trust loads no project rule", a
 
 test("the working project does not load its rules twice as another project", async () => {
   await withTwoProjects(async (_cwd, other) => {
-    const cwd = path.join(other, "src");
-    await mkdir(cwd, { recursive: true });
+    const cwd = other;
     const fake = createFakePi();
     extensionTrusting([other])(fake.api);
     await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
     assert.equal(await fake.emit("tool_call", toolCall("read", path.join(other, "src", "a.ts")), { cwd }), undefined);
     await fake.emit("turn_end", { type: "turn_end" }, { cwd });
-    assert.equal(fake.sent.length, 0);
+
+    const loads = fake.session.entries
+      .filter((entry) => entry.customType === CUSTOM_MESSAGE_TYPE)
+      .flatMap((entry: Loose) => entry.details.sources);
+    assert.deepEqual(loads.filter((label: string) => label.endsWith("other-ts.md")), [".pi/rules/other-ts.md"]);
+    assert.deepEqual(loads.filter((label: string) => label.endsWith("other-base.md")), [".agents/rules/other-base.md"]);
+  });
+});
+
+test("a trust file that cannot be read trusts no other project", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    const failing = new OtherProjects({ get: () => { throw new Error("broken trust.json"); } });
+    const fake = createFakePi();
+    makeExtension({ otherProjects: () => failing })(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    assert.equal(await fake.emit("tool_call", toolCall("edit", path.join(other, "src", "a.ts")), { cwd }), undefined);
+  });
+});
+
+test("a rule of the working project that discovery skips gets a notice, and a rule of another project keeps its place", async () => {
+  await withTwoProjects(async (cwd, other) => {
+    await writeRule(cwd, ".pi/rules/base.md", "Base rule");
+    const fake = createFakePi();
+    extensionTrusting([other])(fake.api);
+    await fake.emit("session_start", { type: "session_start", reason: "startup" }, { cwd });
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    await fake.emit("tool_call", toolCall("read", path.join(other, "src", "a.ts")), { cwd });
+    await fake.emit("turn_end", { type: "turn_end" }, { cwd });
+
+    // A new instance has not read the other project, as after a resume.
+    const resumed = createFakePi(fake.session);
+    extensionTrusting([other])(resumed.api);
+    await resumed.emit("session_start", { type: "session_start", reason: "resume" }, { cwd });
+    await writeRule(cwd, ".pi/rules/base.md", "---\npaths: [broken\n---\nBase rule");
+    const notice = await resumed.emit("before_agent_start", { type: "before_agent_start" }, { cwd });
+    assert.deepEqual(notice.message.details.removed.map((rule: Loose) => rule.label), [".pi/rules/base.md"]);
   });
 });

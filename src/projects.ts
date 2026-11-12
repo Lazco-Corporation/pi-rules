@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { getAgentDir, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { discoverRules, type RuleSource } from "./discovery.ts";
+import { pathInside } from "./matching.ts";
 import type { Rule, RuleDiagnostic } from "./types.ts";
+
+export interface OtherProjectRules {
+  rules: Rule[];
+  diagnostics: RuleDiagnostic[];
+}
 
 /**
  * The project rules of git projects outside the working directory, for the files that the agent touches there.
@@ -21,13 +27,24 @@ export class OtherProjects {
   }
 
   /** The rules of the trusted project that holds `absolutePath`, or none when it is the working project. */
+  /** `discovered` holds the projects that the current tool call already read, so each project is read once per call. */
   async rulesFor(
     absolutePath: string,
     cwd: string,
     sources: RuleSource[],
-  ): Promise<{ rules: Rule[]; diagnostics: RuleDiagnostic[] }> {
+    discovered: Map<string, Promise<OtherProjectRules>> = new Map(),
+  ): Promise<OtherProjectRules> {
     const root = await findProjectRoot(path.dirname(absolutePath));
     if (!root || isInside(path.resolve(cwd), root) || !this.isTrusted(root)) return { rules: [], diagnostics: [] };
+    let result = discovered.get(root);
+    if (!result) {
+      result = this.discover(root, sources);
+      discovered.set(root, result);
+    }
+    return result;
+  }
+
+  private async discover(root: string, sources: RuleSource[]): Promise<OtherProjectRules> {
     const discovery = await discoverRules(root, { sources, home: this.home, labelPrefix: `${labelDirectory(root, this.home)}/` });
     const rules = discovery.rules.filter((rule) => rule.scope === "repo");
     this.rulesByRoot.set(root, rules);
@@ -47,7 +64,12 @@ export class OtherProjects {
   private isTrusted(root: string): boolean {
     let trusted = this.trusted.get(root);
     if (trusted === undefined) {
-      trusted = this.trustStore.get(root) === true;
+      try {
+        trusted = this.trustStore.get(root) === true;
+      } catch {
+        // A trust file that cannot be read trusts nothing.
+        trusted = false;
+      }
       this.trusted.set(root, trusted);
     }
     return trusted;
@@ -63,14 +85,12 @@ export async function findProjectRoot(directory: string): Promise<string | undef
 }
 
 function isInside(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return child === parent || pathInside(parent, child) !== undefined;
 }
 
 function labelDirectory(directory: string, home: string): string {
-  const relative = path.relative(home, directory);
-  if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)) return `~/${relative.split(path.sep).join("/")}`;
-  return directory.split(path.sep).join("/");
+  const relative = pathInside(home, directory);
+  return relative === undefined ? directory.split(path.sep).join("/") : `~/${relative}`;
 }
 
 async function exists(target: string): Promise<boolean> {

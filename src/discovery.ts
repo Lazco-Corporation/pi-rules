@@ -244,6 +244,13 @@ function resolvePiCodingAgentDirectory(env: NodeJS.ProcessEnv, home: string): st
   return env.PI_CODING_AGENT_DIR || path.join(env.PI_CONFIG_DIR || path.join(home, ".pi"), "agent");
 }
 
+/** Every standard rule directory for a working directory, also the ones that `rules.json` turns off. */
+export function standardRuleDirectories(cwd: string, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): string[] {
+  const home = options.home ?? os.homedir();
+  const env = options.env ?? process.env;
+  return DEFAULT_RULE_SOURCES.map((source) => resolveRuleRoot(source, cwd, env, home).directory);
+}
+
 function resolveRuleRoot(source: RuleSource, cwd: string, env: NodeJS.ProcessEnv, home: string): RuleRoot {
   if (source.scope === "repo") {
     return { directory: path.join(cwd, `.${source.kind}`, "rules"), label: `.${source.kind}/rules`, scope: "repo" };

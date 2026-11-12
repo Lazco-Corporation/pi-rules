@@ -161,7 +161,8 @@ Their globs are relative to that project, and a rule without `paths` loads with 
 The chat shows them with the project path, such as `~/Projects/shop/.pi/rules/style.md`.
 
 This happens only for a project that pi trusts, because its rules reach the model as instructions.
-pi saves trust decisions in `~/.pi/agent/trust.json`. A trusted parent directory also trusts the projects in it.
+pi saves trust decisions in `trust.json` in its agent directory, `~/.pi/agent/` unless `PI_CODING_AGENT_DIR` or `PI_CONFIG_DIR` moves it.
+A trusted parent directory also trusts the projects in it.
 
 ### Tools
 

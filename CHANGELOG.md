@@ -10,10 +10,11 @@ Releases up to 0.6.0 are from the original package `@tigorhutasuhut/pi-rules`.
 
 - When the agent reads or changes a file in another git project that pi trusts, the project rules of that project load too.
   Their globs are relative to that project.
+  A rule of that project without `paths` loads with the first file of that project, not before the first model call.
 
-### Changed
+### Fixed
 
-- The notice that a rule no longer applies now comes only when its file is gone.
+- A rule that pi-rules skips, for example after you break its frontmatter, now also gets the notice that it no longer applies.
 
 ## [0.11.0] - 2026-11-12
 
