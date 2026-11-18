@@ -1,0 +1,19 @@
+CHANGELOG.md
+  s_c2c2508b6a48e6::t_ffa9159f9e1ffd 7-13,89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a0e5e9828270cdd94bb72d33b1524cea25ccf0a",
+  "prompts": {},
+  "sessions": {
+    "s_c2c2508b6a48e6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1d1ab-4e64-7110-b033-2dde0c5bee31",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
