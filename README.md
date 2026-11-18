@@ -6,7 +6,9 @@ Pi extension: load Markdown rules into the agent context, for the whole project 
 
 [![npm](https://img.shields.io/npm/v/@lazco/pi-rules)](https://www.npmjs.com/package/@lazco/pi-rules) [![License](https://img.shields.io/npm/l/@lazco/pi-rules)](LICENSE)
 
-[Installation](#installation) · [Usage](#usage) · [Rule files](#rule-files) · [Frontmatter](#frontmatter) · [Configuration](#configuration) · [Limitations](#limitations)
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/demo.gif" width="720" alt="In pi, the agent writes src/routes/health.ts. pi-rules pauses the write, the TypeScript rule loads, and the agent writes the file again with a named export.">
+
+[Demo video](#demo-video) · [Installation](#installation) · [Usage](#usage) · [Rule files](#rule-files) · [Frontmatter](#frontmatter) · [Configuration](#configuration) · [Limitations](#limitations)
 
 </div>
 
@@ -21,6 +23,13 @@ It reads the same rule files, so you can switch without a change to your rules.
 - **Rule before change.** An edit or a write to a matching file waits until the agent has the rule, then the agent tries again. Set [`timing: after`](#timing) to skip the wait for short rules.
 - **Linked skills.** A rule can load full pi [skills](#skills) when it loads.
 - **Six sources in one list.** Project and user directories merge by file name, and the first source wins. See [Rule files](#rule-files).
+
+## Demo video
+
+The 60-second video shows the rule folders, the install, a project rule and its full text, a rule for TypeScript files that pauses a write, and a user rule for a file outside the project.
+Click the image to play the video.
+
+<a href="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/Demo.mp4"><img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/demo-poster.png" width="720" alt="A frame of the demo video. pi-rules pauses a write to src/routes/health.ts, and the chat shows Loaded rules: .pi/rules/typescript.md."></a>
 
 ## Installation
 
@@ -59,7 +68,11 @@ Loaded rules:
 ↳ .pi/rules/project.md
 ```
 
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/loaded.png" width="720" alt="In pi, the user asks what to know before a change. The chat shows Loaded rules: .pi/rules/project.md, and the reply lists the two things that the rule asks for.">
+
 Press the expand key on the message to see the full rule text and the files that matched.
+
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/expanded.png" width="720" alt="The expanded Loaded rules message shows .pi/rules/project.md as unconditional and the full text of the rule.">
 
 ### Rules for some files
 
@@ -81,6 +94,8 @@ Keep tests next to the behavior they check.
 | `edit` or `write` on a matching file | The call stops before it runs. The rule loads, and the agent tries the call again. With [`timing: after`](#timing), the call runs, and the rule loads like a read. |
 | `bash` that changes a matching file | The same as `edit`. |
 | `bash` that names an existing matching file | The same as `read`. |
+
+<img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-rules/path-rule.png" width="720" alt="pi-rules pauses a write to src/routes/health.ts with a default export. Loaded rules shows .pi/rules/typescript.md, and the agent writes the file again with a named export.">
 
 ### Shell commands
 
